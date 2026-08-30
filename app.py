@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import os
 from datetime import datetime
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Gestione Magazzino", layout="wide")
 st.title("📦 Magazzino & Registro Storico Merci")
@@ -118,26 +119,47 @@ if elenco_elimina:
 st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 elenco_prodotti_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 
-col_user, col_scelta, col_quantita = st.columns(3)
-with col_user:
+col_inputs, col_scanner = st.columns([2, 1])
+
+with col_inputs:
     operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
-with col_scelta:
     if elenco_prodotti_tendina:
         prodotto_selezionato = st.selectbox("Seleziona manualmente dal menu:", elenco_prodotti_tendina)
     else:
         st.write("Nessun prodotto in magazzino.")
-with col_quantita:
+    
     quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
+    motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
+    codice_rilevato = st.text_input("Codice Rilevato (Compilato dallo scanner):", key="manual_code_input")
 
-# Campo perfetto sia per scrivere che per attivare lo scanner nativo della tastiera dello smartphone
-codice_manuale = st.text_input("🎯 CLICCA QUI PER SCANSIONARE O DIGITARE:", key="manual_code_input", placeholder="Usa la fotocamera della tastiera o digita il codice")
-motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
+with col_scanner:
+    st.subheader("📸 Lettore Smartphone")
+    
+    # Componente HTML/JS che attiva lo scanner SOLO se premuto sul telefono
+    scanner_html = """
+    <script src="https://unpkg.com"></script>
+    <div id="reader" style="width:100%; max-width:300px; border:1px solid #333; background:#111;"></div>
+    <script>
+        function onScanSuccess(decodedText, decodedResult) {
+            const inputField = window.parent.document.querySelector('input[aria-label="Codice Rilevato (Compilato dallo scanner):"]');
+            if(inputField) {
+                inputField.value = decodedText;
+                inputField.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                alert("Codice scansionato: " + decodedText + ". Digitalo nel campo apposito.");
+            }
+        }
+        let html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+        html5QrcodeScanner.render(onScanSuccess);
+    </script>
+    """
+    components.html(scanner_html, height=320)
 
 if st.button("🔄 Conferma Operazione", use_container_width=True):
     codice_prelievo = None
     
-    if codice_manuale.strip():
-        codice_prelievo = codice_manuale.strip()
+    if codice_rilevato.strip():
+        codice_prelievo = codice_rilevato.strip()
     elif elenco_prodotti_tendina:
         codice_prelievo = prodotto_selezionato.split(" - ")[0]
         
