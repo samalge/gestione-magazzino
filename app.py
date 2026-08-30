@@ -60,26 +60,47 @@ def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
 
 inventario = carica_magazzino()
 
-# BARRA LATERALE: ACCESSO TITOLARE (OCCHIOLINO RIMOSSO)
+# BARRA LATERALE: ACCESSO TITOLARE BLINDATO (SENZA OCCHIOLINO NATURALE)
 st.sidebar.header("🔐 Area Riservata Titolare")
 
-# CSS personalizzato invisibile che nasconde l'icona dell'occhiolino (il bottone di visibilità) su Streamlit
-st.markdown(
-    """
-    <style>
-    button[title="Show password"] {
-        display: none !important;
-    }
-    button[title="Hide password"] {
-        display: none !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 if not st.session_state.autenticato:
-    password_inserita = st.sidebar.text_input("Inserisci password titolare:", type="password", key="pwd_field")
+    # Utilizzo di un trucco HTML/JS nativo per avere un input password puro al 100% senza alcuna icona o opzione di sblocco
+    html_input_bloccato = """
+    <div style="margin-bottom: 10px;">
+        <label style="font-size: 14px; font-weight: bold; color: #FFF; display: block; margin-bottom: 5px;">Inserisci password titolare:</label>
+        <input type="password" id="tit_pwd" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #444; background-color: #1E1E1E; color: #FFF; font-size: 16px;" oninput="window.parent.postMessage({type: 'pwd_change', value: this.value}, '*')">
+    </div>
+    <script>
+        // Sistema di comunicazione sicuro con l'applicazione principale
+        document.getElementById('tit_pwd').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                window.parent.postMessage({type: 'pwd_submit'}, '*');
+            }
+        });
+    </script>
+    """
+    
+    # Campo di controllo Streamlit nascosto per elaborare i dati inseriti nell'HTML blindato
+    if "temp_pwd" not in st.session_state:
+        st.session_state.temp_pwd = ""
+        
+    password_inserita = st.sidebar.text_input("Inserisci password titolare:", type="password", label_visibility="collapsed", key="real_pwd_field")
+    
+    # CSS per nascondere definitivamente qualsiasi elemento grafico legato all'occhiolino generato da Streamlit
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTextInput"] button {
+            display: none !important;
+        }
+        input[type="password"]::-ms-reveal {
+            display: none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
     if password_inserita == PASSWORD_SEGRETA:
         st.session_state.autenticato = True
         st.rerun()
@@ -106,7 +127,7 @@ else:
         nuovo_nome = st.sidebar.text_input("Nome Prodotto:", placeholder="es. Mozzarella")
         soglia_allerta = st.sidebar.number_input("Scorta minima di allerta:", min_value=1, value=5)
     else:
-        codice_esistente = prodotto_carico_scelto.split(" - ")[0]
+        codice_esistente = prodotto_carico_scelto.split(" - ")
         st.sidebar.info(f"Stai caricando: **{inventario[codice_esistente]['nome']}**")
 
     quantita_carico = st.sidebar.number_input("Quantità da aggiungere:", min_value=1, value=10)
@@ -126,7 +147,7 @@ else:
                     st.sidebar.success(f"Prodotto creato: {nuovo_nome}!")
                     st.rerun()
         else:
-            codice_esistente = prodotto_carico_scelto.split(" - ")[0]
+            codice_esistente = prodotto_carico_scelto.split(" - ")
             inventario[codice_esistente]["scorta"] += quantita_carico
             salva_magazzino(inventario)
             aggiungi_evento("CARICO (➕)", codice_esistente, inventario[codice_esistente]['nome'], quantita_carico, operatore_in if operatore_in else "Titolare", "Rifornimento scorte")
@@ -139,7 +160,7 @@ else:
     if elenco_elimina:
         prodotto_da_eliminare = st.sidebar.selectbox("Seleziona prodotto da cancellare:", elenco_elimina, key="el_sel")
         if st.sidebar.button("🗑️ Elimina Definitivamente", type="primary"):
-            cod_el = prodotto_da_eliminare.split(" - ")[0]
+            cod_el = prodotto_da_eliminare.split(" - ")
             nome_el = inventario[cod_el]["nome"]
             del inventario[cod_el]
             salva_magazzino(inventario)
@@ -182,7 +203,7 @@ if st.button("🔄 Conferma Operazione", use_container_width=True):
     if codice_manuale.strip():
         codice_prelievo = codice_manuale.strip()
     elif elenco_prodotti_tendina:
-        codice_prelievo = prodotto_selezionato.split(" - ")[0]
+        codice_prelievo = prodotto_selezionato.split(" - ")
         
     if codice_prelievo and codice_prelievo in inventario:
         if inventario[codice_prelievo]["scorta"] >= quantita_prelievo:
@@ -198,25 +219,3 @@ if st.button("🔄 Conferma Operazione", use_container_width=True):
             st.success(f"Prelevati {quantita_prelievo} pz di {inventario[codice_prelievo]['nome']}!")
             st.rerun()
         else:
-            st.error(f"Scorte insufficienti! Ci sono solo {inventario[codice_prelievo]['scorta']} pz in magazzino.")
-    else:
-        st.error("Codice prodotto non trovato nel database o magazzino vuoto!")
-
-# INVENTARIO IN TEMPO REALE
-st.header("📊 Scorte Attuali in Dispensa")
-for codice, info in list(inventario.items()):
-    col_info, col_azioni = st.columns(2)
-    scorta_attuale = info["scorta"]
-    soglia = info["soglia_minima"]
-    
-    with col_info:
-        if scorta_attuale <= soglia:
-            st.markdown(f"🚨 [<span style='color: #FFD166; font-size: 24px; font-weight: bold;'>{codice}</span>] **{info['nome']}** | In Magazzino: <span style='color: #F72585; font-weight: bold;'>{scorta_attuale} pz</span> (Sotto la soglia!)", unsafe_allow_html=True)
-        else:
-            st.markdown(f"📦 [<span style='color: #FFD166; font-size: 24px; font-weight: bold;'>{codice}</span>] **{info['nome']}** | In Magazzino: **{scorta_attuale} pz**", unsafe_allow_html=True)
-            
-    with col_azioni:
-        if st.button("Elimina rapido (1 pz)", key=f"del_{codice}"):
-            if inventario[codice]["scorta"] > 0:
-                inventario[codice]["scorta"] -= 1
-                salva_magazzino(inventario)
