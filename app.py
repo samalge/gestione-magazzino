@@ -45,7 +45,7 @@ def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
     logs = carica_log()
     nuovo_evento = {
         "orario": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "azione": action,
+        "azione": azione,
         "codice": codice,
         "nome": nome,
         "quantita": quantita,
@@ -57,20 +57,19 @@ def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
 
 inventario = carica_magazzino()
 
-# BARRA LATERALE: CARICO MERCI CON MENU A TENDINA
+# BARRA LATERALE: CARICO MERCI
 st.sidebar.header("🚚 Carico Merci (Arrivo Fornitori)")
 operatore_in = st.sidebar.selectbox("Chi registra il carico?", ["Cuoco 1", "Cuoco 2", "Titolare", "Altro"], key="op_in")
 
 # Preparazione elenco prodotti esistenti per il carico
 elenco_carico_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
-elenco_carico_tendina.insert(0, "➕ NY PRODUKT (Skapa ny...)")
+elenco_carico_tendina.insert(0, "➕ NUOVO PRODOTTO (Inserisci a mano...)")
 
-prodotto_carico_scelto = st.sidebar.selectbox("Seleziona prodotto da caricare:", elenco_carico_tendina)
+prodotto_carico_scelto = st.sidebar.selectbox("Seleziona prodotto da aggiungere:", elenco_carico_tendina)
 
-# Se sceglie di creare un prodotto nuovo, mostra i campi vuoti
-if prodotto_carico_scelto == "➕ NY PRODUKT (Skapa ny...)":
-    nuovo_codice = st.sidebar.text_input("Nuovo Codice / Codice a Barre:", placeholder="es. 104")
-    nuovo_nome = st.sidebar.text_input("Nuovo Nome Prodotto:", placeholder="es. Mozzarella")
+if prodotto_carico_scelto == "➕ NUOVO PRODOTTO (Inserisci a mano...)":
+    nuovo_codice = st.sidebar.text_input("Codice Prodotto / Codice a Barre:", placeholder="es. 104")
+    nuovo_nome = st.sidebar.text_input("Nome Prodotto:", placeholder="es. Mozzarella")
     soglia_allerta = st.sidebar.number_input("Scorta minima di allerta:", min_value=1, value=5)
 else:
     codice_esistente = prodotto_carico_scelto.split(" - ")[0]
@@ -79,24 +78,25 @@ else:
 quantita_carico = st.sidebar.number_input("Quantità da aggiungere:", min_value=1, value=10)
 
 if st.sidebar.button("Registra ed Entra in Magazzino"):
-    if prodotto_carico_scelto == "➕ NY PRODUKT (Skapa ny...)":
+    if prodotto_carico_scelto == "➕ NUOVO PRODOTTO (Inserisci a mano...)":
+        nuovo_codice = nuovo_codice.strip()
         if not nuovo_codice or not nuovo_nome:
-            st.sidebar.error("Inserisci codice e nome per il nuovo prodotto!")
+            st.sidebar.error("Inserisci sia il codice che il nome per il nuovo prodotto!")
         else:
             if nuovo_codice in inventario:
                 st.sidebar.error("Questo codice esiste già nel magazzino!")
             else:
                 inventario[nuovo_codice] = {"nome": nuovo_nome, "scorta": quantita_carico, "soglia_minima": soglia_allerta}
                 salva_magazzino(inventario)
-                aggiungi_evento("CARICO (➕)", nuovo_codice, nuovo_nome, quantita_carico, operatore_in, "Nuovo prodotto inserito")
-                st.sidebar.success(f"Nuovo prodotto creato: {nuovo_nome} ({quantita_carico} pz).")
+                aggiungi_evento("CARICO (➕)", nuovo_codice, nuovo_nome, quantita_carico, operatore_in, "Nuovo prodotto inserito a mano")
+                st.sidebar.success(f"Prodotto creato: {nuovo_nome}!")
                 st.rerun()
     else:
         codice_esistente = prodotto_carico_scelto.split(" - ")[0]
         inventario[codice_esistente]["scorta"] += quantita_carico
         salva_magazzino(inventario)
-        aggiungi_evento("CARICO (➕)", codice_esistente, inventario[codice_esistente]["nome"], quantita_carico, operatore_in, "Rifornimento scorte")
-        st.sidebar.success(f"Caricati {quantita_carico} pz di {inventario[codice_esistente]['nome']}.")
+        aggiungi_evento("CARICO (➕)", codice_esistente, inventario[codice_esistente]['nome'], quantita_carico, operatore_in, "Rifornimento scorte")
+        st.sidebar.success(f"Aggiunti {quantita_carico} pz.")
         st.rerun()
 
 
