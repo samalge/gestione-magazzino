@@ -9,8 +9,11 @@ st.title("📦 Magazzino & Registro Storico Merci")
 DB_FILE = "stato_magazzino.json"
 LOG_FILE = "storico_magazzino.json"
 
-# 🔒 PASSWORD DI SICUREZZA AGGIORNATA
 PASSWORD_SEGRETA = "Samuelmark123#"
+
+# Gestione dello stato dell'accesso (per il pulsante Esci)
+if "autenticato" not in st.session_state:
+    st.session_state.autenticato = False
 
 def carica_magazzino():
     if os.path.exists(DB_FILE):
@@ -58,16 +61,29 @@ def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
 
 inventario = carica_magazzino()
 
-# BARRA LATERALE: ACCESSO TITOLARE (PASSWORD)
+# BARRA LATERALE: ACCESSO TITOLARE
 st.sidebar.header("🔐 Area Riservata Titolare")
-password_inserita = st.sidebar.text_input("Inserisci password per modificare il catalogo o caricare merce:", type="password")
 
-if password_inserita == PASSWORD_SEGRETA:
+# Controllo se l'utente è già loggato
+if not st.session_state.autenticato:
+    # type="password" nasconde i caratteri con i pallini neri
+    password_inserita = st.sidebar.text_input("Inserisci password titolare:", type="password", key="pwd_field")
+    if password_inserita == PASSWORD_SEGRETA:
+        st.session_state.autenticato = True
+        st.rerun()
+    elif password_inserita != "":
+        st.sidebar.error("❌ Password errata!")
+else:
     st.sidebar.success("🔓 Accesso autorizzato!")
     
+    # PULSANTE ESCI E BLOCCA
+    if st.sidebar.button("🔒 Esci e Blocca Area Riservata", type="primary", use_container_width=True):
+        st.session_state.autenticato = False
+        st.rerun()
+        
     st.sidebar.markdown("<hr>", unsafe_allow_html=True)
     st.sidebar.header("🚚 Carico Merci (Arrivo Fornitori)")
-    operatore_in = st.sidebar.text_input("Chi registra il carico?", placeholder="es. Mario / Cuoco 1", key="op_in")
+    operatore_in = st.sidebar.text_input("Chi registra il carico?", placeholder="es. Mario / Titolare", key="op_in")
 
     elenco_carico_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
     elenco_carico_tendina.insert(0, "➕ NUOVO PRODOTTO (Inserisci a mano...)")
@@ -79,7 +95,7 @@ if password_inserita == PASSWORD_SEGRETA:
         nuovo_nome = st.sidebar.text_input("Nome Prodotto:", placeholder="es. Mozzarella")
         soglia_allerta = st.sidebar.number_input("Scorta minima di allerta:", min_value=1, value=5)
     else:
-        codice_esistente = prodotto_carico_scelto.split(" - ")
+        codice_esistente = prodotto_carico_scelto.split(" - ")[0]
         st.sidebar.info(f"Stai caricando: **{inventario[codice_esistente]['nome']}**")
 
     quantita_carico = st.sidebar.number_input("Quantità da aggiungere:", min_value=1, value=10)
@@ -88,7 +104,7 @@ if password_inserita == PASSWORD_SEGRETA:
         if prodotto_carico_scelto == "➕ NUOVO PRODOTTO (Inserisci a mano...)":
             nuovo_codice = nuovo_codice.strip()
             if not nuovo_codice or not nuovo_nome:
-                st.sidebar.error("Inserisci sia il codice che il nome per il nuovo prodotto!")
+                st.sidebar.error("Inserisci sia il codice che il nome!")
             else:
                 if nuovo_codice in inventario:
                     st.sidebar.error("Questo codice esiste già nel magazzino!")
@@ -99,7 +115,7 @@ if password_inserita == PASSWORD_SEGRETA:
                     st.sidebar.success(f"Prodotto creato: {nuovo_nome}!")
                     st.rerun()
         else:
-            codice_esistente = prodotto_carico_scelto.split(" - ")
+            codice_esistente = prodotto_carico_scelto.split(" - ")[0]
             inventario[codice_esistente]["scorta"] += quantita_carico
             salva_magazzino(inventario)
             aggiungi_evento("CARICO (➕)", codice_esistente, inventario[codice_esistente]['nome'], quantita_carico, operatore_in if operatore_in else "Titolare", "Rifornimento scorte")
@@ -112,18 +128,16 @@ if password_inserita == PASSWORD_SEGRETA:
     if elenco_elimina:
         prodotto_da_eliminare = st.sidebar.selectbox("Seleziona prodotto da cancellare:", elenco_elimina, key="el_sel")
         if st.sidebar.button("🗑️ Elimina Definitivamente", type="primary"):
-            cod_el = prodotto_da_eliminare.split(" - ")
+            cod_el = prodotto_da_eliminare.split(" - ")[0]
             nome_el = inventario[cod_el]["nome"]
             del inventario[cod_el]
             salva_magazzino(inventario)
             aggiungi_evento("ELIMINATO (❌)", cod_el, nome_el, 0, "Titolare", "Rimosso completamente dal catalogo")
             st.sidebar.success(f"Rimosso {nome_el} dal magazzino!")
             st.rerun()
-else:
-    if password_inserita != "":
-        st.sidebar.error("❌ Password errata!")
-    else:
-        st.sidebar.info("🔒 Inserisci la password del titolare per sbloccare le funzioni di carico dei fornitori ed eliminazione articoli.")
+
+if not st.session_state.autenticato:
+    st.sidebar.info("🔒 Inserisci la password del titolare per sbloccare le funzioni di carico dei fornitori ed eliminazione articoli.")
 
 
 # PANNELLO CENTRALE: SCARICO RAPIDO
@@ -157,7 +171,7 @@ if st.button("🔄 Conferma Operazione", use_container_width=True):
     if codice_manuale.strip():
         codice_prelievo = codice_manuale.strip()
     elif elenco_prodotti_tendina:
-        codice_prelievo = prodotto_selezionato.split(" - ")
+        codice_prelievo = prodotto_selezionato.split(" - ")[0]
         
     if codice_prelievo and codice_prelievo in inventario:
         if inventario[codice_prelievo]["scorta"] >= quantita_prelievo:
@@ -200,11 +214,3 @@ for codice, info in list(inventario.items()):
     st.markdown("<hr style='margin: 8px 0; border: 0.5px solid #333;'>", unsafe_allow_html=True)
 
 # REGISTRO STORICO
-st.header("📜 Registro Ultimi Movimenti (Tracciabilità)")
-lista_attivita = carica_log()
-
-if lista_attivita:
-    for ev in lista_attivita:
-        st.text(f"⏱️ {ev['orario']} | {ev['azione']} | Cod: {ev['codice']} - {ev['nome']} | Qnt: {ev['quantita']} pz | Da: {ev['operatore']} | Note: {ev['motivo']}")
-else:
-    st.write("Nessun movimento registrato finora.")
