@@ -11,7 +11,6 @@ LOG_FILE = "storico_magazzino.json"
 
 PASSWORD_SEGRETA = "Samuelmark123#"
 
-# Gestione dello stato dell'accesso (per il pulsante Esci)
 if "autenticato" not in st.session_state:
     st.session_state.autenticato = False
 
@@ -61,12 +60,25 @@ def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
 
 inventario = carica_magazzino()
 
-# BARRA LATERALE: ACCESSO TITOLARE
+# BARRA LATERALE: ACCESSO TITOLARE (OCCHIOLINO RIMOSSO)
 st.sidebar.header("🔐 Area Riservata Titolare")
 
-# Controllo se l'utente è già loggato
+# CSS personalizzato invisibile che nasconde l'icona dell'occhiolino (il bottone di visibilità) su Streamlit
+st.markdown(
+    """
+    <style>
+    button[title="Show password"] {
+        display: none !important;
+    }
+    button[title="Hide password"] {
+        display: none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 if not st.session_state.autenticato:
-    # type="password" nasconde i caratteri con i pallini neri
     password_inserita = st.sidebar.text_input("Inserisci password titolare:", type="password", key="pwd_field")
     if password_inserita == PASSWORD_SEGRETA:
         st.session_state.autenticato = True
@@ -76,7 +88,6 @@ if not st.session_state.autenticato:
 else:
     st.sidebar.success("🔓 Accesso autorizzato!")
     
-    # PULSANTE ESCI E BLOCCA
     if st.sidebar.button("🔒 Esci e Blocca Area Riservata", type="primary", use_container_width=True):
         st.session_state.autenticato = False
         st.rerun()
@@ -209,8 +220,3 @@ for codice, info in list(inventario.items()):
             if inventario[codice]["scorta"] > 0:
                 inventario[codice]["scorta"] -= 1
                 salva_magazzino(inventario)
-                aggiungi_evento("CANCELLAZIONE (🗑️)", codice, inventario[codice]["nome"], 1, "Titolare", "Eliminato a mano")
-                st.rerun()
-    st.markdown("<hr style='margin: 8px 0; border: 0.5px solid #333;'>", unsafe_allow_html=True)
-
-# REGISTRO STORICO
