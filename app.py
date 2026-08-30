@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 st.set_page_config(page_title="Gestione Magazzino", layout="wide")
-st.title("📦 Magazzino & Registro Historik Merci")
+st.title("📦 Magazzino & Registro Storico Merci")
 
 DB_FILE = "stato_magazzino.json"
 LOG_FILE = "storico_magazzino.json"
@@ -98,7 +98,7 @@ if st.sidebar.button("Registra ed Entra in Magazzino"):
         st.sidebar.success(f"Aggiunti {quantita_carico} pz.")
         st.rerun()
 
-# RIMOZIONE DEFINITIVA (Sotto il carico nella barra laterale)
+# RIMOZIONE DEFINITIVA
 st.sidebar.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
 st.sidebar.header("🗑️ Elimina Articolo")
 elenco_elimina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
@@ -118,28 +118,34 @@ if elenco_elimina:
 st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 elenco_prodotti_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 
-codice_scannato = st.text_input("📷 SCANSIONA CODICE A BARRE SULLO SCAFFALE:", key="scan_input", placeholder="Inquadra il codice sul ripiano...")
+col_sx, col_dx = st.columns(2)
 
-col_user, col_scelta, col_quantita = st.columns(3)
-with col_user:
+with col_sx:
+    st.subheader("Opzione A: Seleziona da Menu o Tastiera")
     operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
-with col_scelta:
     if elenco_prodotti_tendina:
-        prodotto_selezionato = st.selectbox("Oppure seleziona manualmente dal menu:", elenco_prodotti_tendina)
+        prodotto_selezionato = st.selectbox("Seleziona manualmente dal menu:", elenco_prodotti_tendina)
     else:
         st.write("Nessun prodotto in magazzino.")
-with col_quantita:
-    quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
+    codice_manuale = st.text_input("Oppure scrivi il codice a mano:", key="manual_code_input")
 
+with col_dx:
+    st.subheader("Opzione B: Attiva Fotocamera")
+    # Questo attiva la fotocamera reale dello smartphone
+    foto_codice = st.camera_input("Inquadra il codice a barre stampato sullo scaffale:")
+
+quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
 motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
 
-if st.button("🔄 Conferma Operazione", use_container_width=True):
-    if codice_scannato.strip():
-        codice_prelievo = codice_scannato.strip()
+if st.button("🔄 Conferma Operazione di Scarico", use_container_width=True):
+    codice_prelievo = None
+    
+    # 1. Controlla prima se è stato inserito un codice a mano
+    if codice_manuale.strip():
+        codice_prelievo = codice_manuale.strip()
+    # 2. Altrimenti usa la selezione della tendina
     elif elenco_prodotti_tendina:
         codice_prelievo = prodotto_selezionato.split(" - ")[0]
-    else:
-        codice_prelievo = None
         
     if codice_prelievo and codice_prelievo in inventario:
         if inventario[codice_prelievo]["scorta"] >= quantita_prelievo:
