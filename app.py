@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 st.set_page_config(page_title="Gestione Magazzino", layout="wide")
-st.title("📦 Magazzino & Registro Storico Merci")
+st.title("📦 Magazzino & Registro Historik Merci")
 
 DB_FILE = "stato_magazzino.json"
 LOG_FILE = "storico_magazzino.json"
@@ -98,19 +98,36 @@ if st.sidebar.button("Registra ed Entra in Magazzino"):
         st.sidebar.success(f"Aggiunti {quantita_carico} pz.")
         st.rerun()
 
+# RIMOZIONE DEFINITIVA (Sotto il carico nella barra laterale)
+st.sidebar.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+st.sidebar.header("🗑️ Elimina Articolo")
+elenco_elimina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
+if elenco_elimina:
+    prodotto_da_eliminare = st.sidebar.selectbox("Seleziona prodotto da cancellare:", elenco_elimina, key="el_sel")
+    if st.sidebar.button("🗑️ Elimina Definitivamente dal Magazzino", type="primary"):
+        cod_el = prodotto_da_eliminare.split(" - ")[0]
+        nome_el = inventario[cod_el]["nome"]
+        del inventario[cod_el]
+        salva_magazzino(inventario)
+        aggiungi_evento("ELIMINATO (❌)", cod_el, nome_el, 0, "Titolare", "Rimosso completamente dal catalogo")
+        st.sidebar.success(f"Rimosso {nome_el} dal magazzino!")
+        st.rerun()
+
 
 # PANNELLO CENTRALE: SCARICO RAPIDO
 st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 elenco_prodotti_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 
-# Corretto l'errore rimuovendo il parametro non supportato
 codice_scannato = st.text_input("📷 SCANSIONA CODICE A BARRE SULLO SCAFFALE:", key="scan_input", placeholder="Inquadra il codice sul ripiano...")
 
 col_user, col_scelta, col_quantita = st.columns(3)
 with col_user:
     operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
 with col_scelta:
-    prodotto_selezionato = st.selectbox("Oppure seleziona manualmente dal menu:", elenco_prodotti_tendina)
+    if elenco_prodotti_tendina:
+        prodotto_selezionato = st.selectbox("Oppure seleziona manualmente dal menu:", elenco_prodotti_tendina)
+    else:
+        st.write("Nessun prodotto in magazzino.")
 with col_quantita:
     quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
 
@@ -119,10 +136,12 @@ motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. S
 if st.button("🔄 Conferma Operazione", use_container_width=True):
     if codice_scannato.strip():
         codice_prelievo = codice_scannato.strip()
-    else:
+    elif elenco_prodotti_tendina:
         codice_prelievo = prodotto_selezionato.split(" - ")[0]
+    else:
+        codice_prelievo = None
         
-    if codice_prelievo in inventario:
+    if codice_prelievo and codice_prelievo in inventario:
         if inventario[codice_prelievo]["scorta"] >= quantita_prelievo:
             inventario[codice_prelievo]["scorta"] -= quantita_prelievo
             salva_magazzino(inventario)
@@ -132,7 +151,7 @@ if st.button("🔄 Conferma Operazione", use_container_width=True):
         else:
             st.error(f"Scorte insufficienti! Ci sono solo {inventario[codice_prelievo]['scorta']} pz in magazzino.")
     else:
-        st.error("Codice prodotto non trovato nel database!")
+        st.error("Codice prodotto non trovato nel database o magazzino vuoto!")
 
 # INVENTARIO IN TEMPO REALE
 st.header("📊 Scorte Attuali in Dispensa")
