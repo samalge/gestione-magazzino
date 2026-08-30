@@ -98,7 +98,7 @@ if st.sidebar.button("Registra ed Entra in Magazzino"):
         st.sidebar.success(f"Aggiunti {quantita_carico} pz.")
         st.rerun()
 
-# RIMOZIONE DEFINITIVA
+# RIMOZIONE DEFINITIVA DAL CATALOGO
 st.sidebar.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
 st.sidebar.header("🗑️ Elimina Articolo")
 elenco_elimina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
@@ -129,17 +129,15 @@ with col_scelta:
 with col_quantita:
     quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
 
-# Campo pulito pronto per la pistola laser o digitazione manuale veloce
-codice_manuale = st.text_input("🎯 SPARALASER / DIGITA CODICE PRODOTTO:", key="manual_code_input", placeholder="Spara qui il codice con la pistola o scrivi")
+# Campo perfetto sia per scrivere che per attivare lo scanner nativo della tastiera dello smartphone
+codice_manuale = st.text_input("🎯 CLICCA QUI PER SCANSIONARE O DIGITARE:", key="manual_code_input", placeholder="Usa la fotocamera della tastiera o digita il codice")
 motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
 
 if st.button("🔄 Conferma Operazione", use_container_width=True):
     codice_prelievo = None
     
-    # 1. Se hai usato la pistola laser o scritto a mano, usa quel codice
     if codice_manuale.strip():
         codice_prelievo = codice_manuale.strip()
-    # 2. Altrimenti usa la selezione del menu a tendina
     elif elenco_prodotti_tendina:
         codice_prelievo = prodotto_selezionato.split(" - ")[0]
         
