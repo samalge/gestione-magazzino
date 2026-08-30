@@ -3,11 +3,11 @@ import json
 import os
 from datetime import datetime
 
-st.set_page_config(page_title="Lagerhantering", layout="wide")
-st.title("📦 Lagerhantering & Historik")
+st.set_page_config(page_title="Gestione Magazzino", layout="wide")
+st.title("📦 Magazzino & Registro Storico Merci")
 
 DB_FILE = "stato_magazzino.json"
-LOG_FILE = "historik_magazzino.json"
+LOG_FILE = "storico_magazzino.json"
 
 # Carica Inventario
 def carica_magazzino():
@@ -19,15 +19,15 @@ def carica_magazzino():
             return {}
     return {
         "101": {"nome": "Pasta Barilla", "scorta": 20, "soglia_minima": 5},
-        "102": {"nome": "Krossade tomater", "scorta": 50, "soglia_minima": 10},
-        "103": {"nome": "Husets rödvin", "scorta": 12, "soglia_minima": 3}
+        "102": {"nome": "Polpa di Pomodoro", "scorta": 50, "soglia_minima": 10},
+        "103": {"nome": "Vino Rosso della Casa", "scorta": 12, "soglia_minima": 3}
     }
 
 def salva_magazzino(inventario):
     with open(DB_FILE, "w") as f:
         json.dump(inventario, f)
 
-# Carica Registro Storico
+# Carica Registro Storico (Log)
 def carica_log():
     if os.path.exists(LOG_FILE):
         try:
@@ -44,30 +44,30 @@ def salva_log(lista_log):
 def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
     logs = carica_log()
     nuovo_evento = {
-        "tid": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "azione": azione, # "INPUT" o "OUTPUT"
-        "kod": codice,
-        "namn": nome,
-        "antal": quantita,
-        "personal": operatore,
-        "orsak": motivo
+        "orario": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "azione": azione, # "CARICO (➕)" o "SCARICO (➖)"
+        "codice": codice,
+        "nome": nome,
+        "quantita": quantita,
+        "operatore": operatore,
+        "motivo": motivo
     }
-    logs.insert(0, nuovo_evento) # Mette l'ultimo evento in cima
+    logs.insert(0, nuovo_evento) # Mette l'ultimo evento in cima alla lista
     salva_log(logs[:100]) # Tiene in memoria solo gli ultimi 100 movimenti
 
 inventario = carica_magazzino()
 
-# SIDOPANEL: LEVERANS (INPUT)
-st.sidebar.header("🚚 Leverans (Lägg till varor)")
-operatore_in = st.sidebar.selectbox("Vem registrerar?", ["Kock 1", "Kock 2", "Chef", "Annan"], key="op_in")
-nuovo_codice = st.sidebar.text_input("Produktkod / Streckkod:", placeholder="t.ex. 104 eller skanna")
-nuovo_nome = st.sidebar.text_input("Produktnamn:", placeholder="t.ex. Mozzarella")
-quantita_carico = st.sidebar.number_input("Antal att lägga till:", min_value=1, value=10)
-soglia_allerta = st.sidebar.number_input("Minsta varningsnivå:", min_value=1, value=5)
+# BARRA LATERALE: CARICO MERCI (Arrivo Fornitori)
+st.sidebar.header("🚚 Carico Merci (Arrivo Fornitori)")
+operatore_in = st.sidebar.selectbox("Chi registra il carico?", ["Cuoco 1", "Cuoco 2", "Titolare", "Altro"], key="op_in")
+nuovo_codice = st.sidebar.text_input("Codice Prodotto / Codice a Barre:", placeholder="es. 104 o scansiona")
+nuovo_nome = st.sidebar.text_input("Nome Prodotto:", placeholder="es. Mozzarella")
+quantita_carico = st.sidebar.number_input("Quantità da aggiungere:", min_value=1, value=10)
+soglia_allerta = st.sidebar.number_input("Scorta minima di allerta:", min_value=1, value=5)
 
-if st.sidebar.button("Registrera i lager"):
+if st.sidebar.button("Registra ed Entra in Magazzino"):
     if not nuovo_codice or not nuovo_nome:
-        st.sidebar.error("Ange både produktkod och produktnamn!")
+        st.sidebar.error("Devi inserire sia il codice che il nome del prodotto!")
     else:
         if nuovo_codice in inventario:
             inventario[nuovo_codice]["scorta"] += quantita_carico
@@ -77,66 +77,67 @@ if st.sidebar.button("Registrera i lager"):
             nome_p = nuovo_nome
         
         salva_magazzino(inventario)
-        aggiungi_evento("LEVERANS (➕)", nuovo_codice, nome_p, quantita_carico, operatore_in, "Inkommande varor")
-        st.sidebar.success(f"Registrerat! {quantita_carico} st tillagda.")
+        aggiungi_evento("CARICO (➕)", nuovo_codice, nome_p, quantita_carico, operatore_in, "Fornitore / Arrivo merci")
+        st.sidebar.success(f"Registrato! Aggiunti {quantita_carico} pz.")
         st.rerun()
 
-# CENTRALPANEL: UTTAG (OUTPUT)
-st.header("🛒 Snabbuttag (Minska lager)")
+# PANNELLO CENTRALE: SCARICO RAPIDO (Uscita Cucina / Bar)
+st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 
-# Integrazione Scanner Fotocamera del telefono (Nativa)
-codice_scannato = st.text_input("📷 KLICKA HÄR FÖR ATT SKANNA MED TELEFONEN:", key="scan_input", placeholder="Placera markören här och använd kameran")
+# Input per scannerizzare con la fotocamera dello smartphone
+codice_scannato = st.text_input("📷 CLICCA QUI PER SCANSIONARE CON IL TELEFONO:", key="scan_input", placeholder="Posiziona il cursore qui e inquadra il codice a barre")
 
 col_user, col_quantita, col_motivo = st.columns(3)
 with col_user:
-    operatore_out = st.selectbox("Vem tar ut varan?", ["Kock 1", "Kock 2", "Servering", "Chef"], key="op_out")
+    operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
 with col_quantita:
-    quantita_prelievo = st.number_input("Antal att ta ut:", min_value=1, value=1, key="qta")
+    quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
 with col_motivo:
-    motivo_out = st.text_input("Anledning (valfritt):", placeholder="t.ex. Matsal, Trasig, Utgången")
+    motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
 
-if st.button("🔄 Bekräfta uttag", use_container_width=True):
+if st.button("🔄 Conferma Prelievo ed Elimina", use_container_width=True):
     codice_prelievo = codice_scannato.strip()
     if codice_prelievo in inventario:
         if inventario[codice_prelievo]["scorta"] >= quantita_prelievo:
             inventario[codice_prelievo]["scorta"] -= quantita_prelievo
             salva_magazzino(inventario)
-            aggiungi_evento("UTTAG (➖)", codice_prelievo, inventario[codice_prelievo]["nome"], quantita_prelievo, operatore_out, motivo_out)
-            st.success(f"Tog ut {quantita_prelievo} st!")
+            aggiungi_evento("SCARICO (➖)", codice_prelievo, inventario[codice_prelievo]["nome"], quantita_prelievo, operatore_out, motivo_out)
+            st.success(f"Prelevati {quantita_prelievo} pz di {inventario[codice_prelievo]['nome']}!")
             st.rerun()
         else:
-            st.error(f"Otillräckligt lager! Endast {inventario[codice_prelievo]['scorta']} st kvar.")
+            st.error(f"Scorte insufficienti! Ci sono solo {inventario[codice_prelievo]['scorta']} pz in magazzino.")
     else:
-        st.error("Produktkoden hittades inte i databasen!")
+        st.error("Codice prodotto non trovato nel database!")
 
-# LAGERSTATUS I REALTID
-st.header("📊 Lagerstatus")
+# INVENTARIO IN TEMPO REALE
+st.header("📊 Scorte Attuali in Dispensa")
 for codice, info in list(inventario.items()):
     col_info, col_azioni = st.columns(2)
     scorta_attuale = info["scorta"]
     soglia = info["soglia_minima"]
     
     with col_info:
+        # Codice del prodotto GIALLO e grande (#FFD166) come richiesto per i tavoli
         if scorta_attuale <= soglia:
-            st.markdown(f"🚨 [<span style='color: #FFD166; font-size: 24px; font-weight: bold;'>{codice}</span>] **{info['nome']}** | Lager: <span style='color: #F72585; font-weight: bold;'>{scorta_attuale} st</span> (Varning!)", unsafe_allow_html=True)
+            st.markdown(f"🚨 [<span style='color: #FFD166; font-size: 24px; font-weight: bold;'>{codice}</span>] **{info['nome']}** | In Magazzino: <span style='color: #F72585; font-weight: bold;'>{scorta_attuale} pz</span> (Sotto la soglia!)", unsafe_allow_html=True)
         else:
-            st.markdown(f"📦 [<span style='color: #FFD166; font-size: 24px; font-weight: bold;'>{codice}</span>] **{info['nome']}** | Lager: **{scorta_attuale} st**", unsafe_allow_html=True)
+            st.markdown(f"📦 [<span style='color: #FFD166; font-size: 24px; font-weight: bold;'>{codice}</span>] **{info['nome']}** | In Magazzino: **{scorta_attuale} pz**", unsafe_allow_html=True)
             
     with col_azioni:
-        if st.button("Snabbradering (1 st)", key=f"del_{codice}"):
+        if st.button("Elimina rapido (1 pz)", key=f"del_{codice}"):
             if inventario[codice]["scorta"] > 0:
                 inventario[codice]["scorta"] -= 1
                 salva_magazzino(inventario)
-                aggiungi_evento("SNARENSNING (🗑️)", codice, inventario[codice]["nome"], 1, "Chef/Kock", "Manuellt borttagen")
+                aggiungi_evento("CANCELLAZIONE (🗑️)", codice, inventario[codice]["nome"], 1, "Titolare", "Eliminato a mano")
                 st.rerun()
     st.markdown("<hr style='margin: 8px 0; border: 0.5px solid #333;'>", unsafe_allow_html=True)
 
-# REGISTRO STORICO DELLE ATTIVITÀ (HISTORIK)
-st.header("📜 Senaste aktiviteterna (Tracerbarhet)")
+# REGISTRO STORICO DEI MOVIMENTI
+st.header("📜 Registro Ultimi Movimenti (Tracciabilità)")
 lista_attivita = carica_log()
 
 if lista_attivita:
     for ev in lista_attivita:
-        st.text(f"⏱️ {ev['tid']} | {ev['azione']} | Kod: {ev['kod']} - {ev['namn']} | Antal: {ev['antal']} st | Av: {ev['personal']} | Obs: {ev['orsak']}")
+        st.text(f"⏱️ {ev['orario']} | {ev['azione']} | Cod: {ev['codice']} - {ev['nome']} | Qnt: {ev['quantita']} pz | Da: {ev['operatore']} | Note: {ev['motivo']}")
 else:
-    st.write("Inga aktiviteter registrerade ännu.")
+    st.write("Nessun movimento registrato finora.")
