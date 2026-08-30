@@ -52,7 +52,7 @@ def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
         "operatore": operatore,
         "motivo": motivo
     }
-    logs.insert(0, nuovo_evento)
+    logs.insert(0, nuevo_evento)
     salva_log(logs[:100])
 
 inventario = carica_magazzino()
@@ -61,7 +61,6 @@ inventario = carica_magazzino()
 st.sidebar.header("🚚 Carico Merci (Arrivo Fornitori)")
 operatore_in = st.sidebar.selectbox("Chi registra il carico?", ["Cuoco 1", "Cuoco 2", "Titolare", "Altro"], key="op_in")
 
-# Preparazione elenco prodotti esistenti per il carico
 elenco_carico_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 elenco_carico_tendina.insert(0, "➕ NUOVO PRODOTTO (Inserisci a mano...)")
 
@@ -104,18 +103,20 @@ if st.sidebar.button("Registra ed Entra in Magazzino"):
 st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 elenco_prodotti_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 
+# AGGIUNTO AUTOMATIC_FOCUS=TRUE: Il cursore si posiziona qui da solo all'apertura della pagina
+codice_scannato = st.text_input("📷 SCANSIONA CODICE A BARRE SULLO SCAFFALE:", key="scan_input", placeholder="Inquadra il codice sul ripiano...", autofocus=True)
+
 col_user, col_scelta, col_quantita = st.columns(3)
 with col_user:
     operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
 with col_scelta:
-    prodotto_selezionato = st.selectbox("Seleziona il prodotto da scaricare:", elenco_prodotti_tendina)
+    prodotto_selezionato = st.selectbox("Oppure seleziona manualmente dal menu:", elenco_prodotti_tendina)
 with col_quantita:
     quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
 
-codice_scannato = st.text_input("📷 OPPURE SCANSIONA CODICE A BARRE (Opzionale):", key="scan_input", placeholder="Inquadra se hai il prodotto in mano")
 motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
 
-if st.button("🔄 Conferma Prelievo ed Elimina", use_container_width=True):
+if st.button("🔄 Conferma Operazione", use_container_width=True):
     if codice_scannato.strip():
         codice_prelievo = codice_scannato.strip()
     else:
