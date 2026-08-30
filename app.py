@@ -118,32 +118,28 @@ if elenco_elimina:
 st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 elenco_prodotti_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 
-col_sx, col_dx = st.columns(2)
-
-with col_sx:
-    st.subheader("Opzione A: Seleziona da Menu o Tastiera")
+col_user, col_scelta, col_quantita = st.columns(3)
+with col_user:
     operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
+with col_scelta:
     if elenco_prodotti_tendina:
         prodotto_selezionato = st.selectbox("Seleziona manualmente dal menu:", elenco_prodotti_tendina)
     else:
         st.write("Nessun prodotto in magazzino.")
-    codice_manuale = st.text_input("Oppure scrivi il codice a mano:", key="manual_code_input")
+with col_quantita:
+    quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
 
-with col_dx:
-    st.subheader("Opzione B: Attiva Fotocamera")
-    # Questo attiva la fotocamera reale dello smartphone
-    foto_codice = st.camera_input("Inquadra il codice a barre stampato sullo scaffale:")
-
-quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
+# Campo pulito pronto per la pistola laser o digitazione manuale veloce
+codice_manuale = st.text_input("🎯 SPARALASER / DIGITA CODICE PRODOTTO:", key="manual_code_input", placeholder="Spara qui il codice con la pistola o scrivi")
 motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
 
-if st.button("🔄 Conferma Operazione di Scarico", use_container_width=True):
+if st.button("🔄 Conferma Operazione", use_container_width=True):
     codice_prelievo = None
     
-    # 1. Controlla prima se è stato inserito un codice a mano
+    # 1. Se hai usato la pistola laser o scritto a mano, usa quel codice
     if codice_manuale.strip():
         codice_prelievo = codice_manuale.strip()
-    # 2. Altrimenti usa la selezione della tendina
+    # 2. Altrimenti usa la selezione del menu a tendina
     elif elenco_prodotti_tendina:
         codice_prelievo = prodotto_selezionato.split(" - ")[0]
         
