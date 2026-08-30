@@ -71,7 +71,7 @@ if prodotto_carico_scelto == "➕ NUOVO PRODOTTO (Inserisci a mano...)":
     nuovo_nome = st.sidebar.text_input("Nome Prodotto:", placeholder="es. Mozzarella")
     soglia_allerta = st.sidebar.number_input("Scorta minima di allerta:", min_value=1, value=5)
 else:
-    codice_esistente = prodotto_carico_scelto.split(" - ")[0]
+    codice_esistente = prodotto_carico_scelto.split(" - ")
     st.sidebar.info(f"Stai caricando: **{inventario[codice_esistente]['nome']}**")
 
 quantita_carico = st.sidebar.number_input("Quantità da aggiungere:", min_value=1, value=10)
@@ -91,7 +91,7 @@ if st.sidebar.button("Registra ed Entra in Magazzino"):
                 st.sidebar.success(f"Prodotto creato: {nuovo_nome}!")
                 st.rerun()
     else:
-        codice_esistente = prodotto_carico_scelto.split(" - ")[0]
+        codice_esistente = prodotto_carico_scelto.split(" - ")
         inventario[codice_esistente]["scorta"] += quantita_carico
         salva_magazzino(inventario)
         aggiungi_evento("CARICO (➕)", codice_esistente, inventario[codice_esistente]['nome'], quantita_carico, operatore_in, "Rifornimento scorte")
@@ -105,7 +105,7 @@ elenco_elimina = [f"{codice} - {info['nome']}" for codice, info in inventario.it
 if elenco_elimina:
     prodotto_da_eliminare = st.sidebar.selectbox("Seleziona prodotto da cancellare:", elenco_elimina, key="el_sel")
     if st.sidebar.button("🗑️ Elimina Definitivamente dal Magazzino", type="primary"):
-        cod_el = prodotto_da_eliminare.split(" - ")[0]
+        cod_el = prodotto_da_eliminare.split(" - ")
         nome_el = inventario[cod_el]["nome"]
         del inventario[cod_el]
         salva_magazzino(inventario)
@@ -123,22 +123,20 @@ col_dati, col_foto = st.columns(2)
 with col_dati:
     operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
     if elenco_prodotti_tendina:
-        prodotto_selezionato = st.selectbox("Metodo 1: Seleziona dal menu a tendina:", elenco_prodotti_tendina)
+        prodotto_selezionato = st.selectbox("Seleziona dal menu a tendina:", elenco_prodotti_tendina)
     else:
         st.write("Nessun prodotto in magazzino.")
         
-    codice_manuale = st.text_input("Metodo 2: Oppure digita il codice a mano:", key="manual_code_input", placeholder="Es. 101")
+    codice_manuale = st.text_input("Oppure digita il codice a mano:", key="manual_code_input", placeholder="Es. 101")
     quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
     motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
 
 with col_foto:
-    st.subheader("Metodo 3: Foto Codice da Telefono")
-    # Questo interruttore tiene la fotocamera del Mac SPENTA finché non si decide di attivarla
-    attiva_cam = st.checkbox("📸 Attiva fotocamera per scatto rapido", value=False)
+    st.subheader("📸 Foto da Telefono")
+    attiva_cam = st.checkbox("Attiva fotocamera per scatto rapido", value=False)
     
     foto_prodotto = None
     if attiva_cam:
-        # Questa funzione è l'unica supportata dai telefoni e chiede il permesso nativo
         foto_prodotto = st.camera_input("Inquadra il codice stampato sullo scaffale:", key="camera_widget")
 
 if st.button("🔄 Conferma Operazione", use_container_width=True):
@@ -147,7 +145,7 @@ if st.button("🔄 Conferma Operazione", use_container_width=True):
     if codice_manuale.strip():
         codice_prelievo = codice_manuale.strip()
     elif elenco_prodotti_tendina:
-        codice_prelievo = prodotto_selezionato.split(" - ")[0]
+        codice_prelievo = prodotto_selezionato.split(" - ")
         
     if codice_prelievo and codice_prelievo in inventario:
         if inventario[codice_prelievo]["scorta"] >= quantita_prelievo:
