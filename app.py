@@ -52,7 +52,7 @@ def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
         "operatore": operatore,
         "motivo": motivo
     }
-    logs.insert(0, nuevo_evento)
+    logs.insert(0, nuovo_evento)
     salva_log(logs[:100])
 
 inventario = carica_magazzino()
@@ -103,8 +103,8 @@ if st.sidebar.button("Registra ed Entra in Magazzino"):
 st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 elenco_prodotti_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 
-# AGGIUNTO AUTOMATIC_FOCUS=TRUE: Il cursore si posiziona qui da solo all'apertura della pagina
-codice_scannato = st.text_input("📷 SCANSIONA CODICE A BARRE SULLO SCAFFALE:", key="scan_input", placeholder="Inquadra il codice sul ripiano...", autofocus=True)
+# Corretto l'errore rimuovendo il parametro non supportato
+codice_scannato = st.text_input("📷 SCANSIONA CODICE A BARRE SULLO SCAFFALE:", key="scan_input", placeholder="Inquadra il codice sul ripiano...")
 
 col_user, col_scelta, col_quantita = st.columns(3)
 with col_user:
