@@ -2,7 +2,6 @@ import streamlit as st
 import json
 import os
 from datetime import datetime
-import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Gestione Magazzino", layout="wide")
 st.title("📦 Magazzino & Registro Storico Merci")
@@ -119,47 +118,34 @@ if elenco_elimina:
 st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 elenco_prodotti_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 
-col_inputs, col_scanner = st.columns([2, 1])
+col_dati, col_foto = st.columns(2)
 
-with col_inputs:
+with col_dati:
     operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
     if elenco_prodotti_tendina:
-        prodotto_selezionato = st.selectbox("Seleziona manualmente dal menu:", elenco_prodotti_tendina)
+        prodotto_selezionato = st.selectbox("Metodo 1: Seleziona dal menu a tendina:", elenco_prodotti_tendina)
     else:
         st.write("Nessun prodotto in magazzino.")
-    
+        
+    codice_manuale = st.text_input("Metodo 2: Oppure digita il codice a mano:", key="manual_code_input", placeholder="Es. 101")
     quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
     motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
-    codice_rilevato = st.text_input("Codice Rilevato (Compilato dallo scanner):", key="manual_code_input")
 
-with col_scanner:
-    st.subheader("📸 Lettore Smartphone")
+with col_foto:
+    st.subheader("Metodo 3: Foto Codice da Telefono")
+    # Questo interruttore tiene la fotocamera del Mac SPENTA finché non si decide di attivarla
+    attiva_cam = st.checkbox("📸 Attiva fotocamera per scatto rapido", value=False)
     
-    # Componente HTML/JS che attiva lo scanner SOLO se premuto sul telefono
-    scanner_html = """
-    <script src="https://unpkg.com"></script>
-    <div id="reader" style="width:100%; max-width:300px; border:1px solid #333; background:#111;"></div>
-    <script>
-        function onScanSuccess(decodedText, decodedResult) {
-            const inputField = window.parent.document.querySelector('input[aria-label="Codice Rilevato (Compilato dallo scanner):"]');
-            if(inputField) {
-                inputField.value = decodedText;
-                inputField.dispatchEvent(new Event('input', { bubbles: true }));
-            } else {
-                alert("Codice scansionato: " + decodedText + ". Digitalo nel campo apposito.");
-            }
-        }
-        let html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
-        html5QrcodeScanner.render(onScanSuccess);
-    </script>
-    """
-    components.html(scanner_html, height=320)
+    foto_prodotto = None
+    if attiva_cam:
+        # Questa funzione è l'unica supportata dai telefoni e chiede il permesso nativo
+        foto_prodotto = st.camera_input("Inquadra il codice stampato sullo scaffale:", key="camera_widget")
 
 if st.button("🔄 Conferma Operazione", use_container_width=True):
     codice_prelievo = None
     
-    if codice_rilevato.strip():
-        codice_prelievo = codice_rilevato.strip()
+    if codice_manuale.strip():
+        codice_prelievo = codice_manuale.strip()
     elif elenco_prodotti_tendina:
         codice_prelievo = prodotto_selezionato.split(" - ")[0]
         
