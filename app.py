@@ -27,7 +27,7 @@ def salva_magazzino(inventario):
     with open(DB_FILE, "w") as f:
         json.dump(inventario, f)
 
-# Carica Registro Storico (Log)
+# Carica Registro Storico
 def carica_log():
     if os.path.exists(LOG_FILE):
         try:
@@ -45,15 +45,15 @@ def aggiungi_evento(azione, codice, nome, quantita, operatore, motivo=""):
     logs = carica_log()
     nuovo_evento = {
         "orario": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "azione": azione, # "CARICO (➕)" o "SCARICO (➖)"
+        "azione": azione,
         "codice": codice,
         "nome": nome,
         "quantita": quantita,
         "operatore": operatore,
         "motivo": motivo
     }
-    logs.insert(0, nuovo_evento) # Mette l'ultimo evento in cima alla lista
-    salva_log(logs[:100]) # Tiene in memoria solo gli ultimi 100 movimenti
+    logs.insert(0, nuovo_evento)
+    salva_log(logs[:100])
 
 inventario = carica_magazzino()
 
@@ -81,22 +81,32 @@ if st.sidebar.button("Registra ed Entra in Magazzino"):
         st.sidebar.success(f"Registrato! Aggiunti {quantita_carico} pz.")
         st.rerun()
 
-# PANNELLO CENTRALE: SCARICO RAPIDO (Uscita Cucina / Bar)
+# PANNELLO CENTRALE: SCARICO RAPIDO
 st.header("🛒 Scarico Rapido (Uscita merci per la cucina)")
 
-# Input per scannerizzare con la fotocamera dello smartphone
-codice_scannato = st.text_input("📷 CLICCA QUI PER SCANSIONARE CON IL TELEFONO:", key="scan_input", placeholder="Posiziona il cursore qui e inquadra il codice a barre")
+# Preparazione della lista prodotti per il menu a tendina
+elenco_prodotti_tendina = [f"{codice} - {info['nome']}" for codice, info in inventario.items()]
 
-col_user, col_quantita, col_motivo = st.columns(3)
+col_user, col_scelta, col_quantita = st.columns(3)
 with col_user:
     operatore_out = st.selectbox("Chi preleva la merce?", ["Cuoco 1", "Cuoco 2", "Sala / Camerieri", "Titolare"], key="op_out")
+with col_scelta:
+    # MENU A TENDINA AUTOMATICO
+    prodotto_selezionato = st.selectbox("Seleziona il prodotto da scaricare:", elenco_prodotti_tendina)
 with col_quantita:
     quantita_prelievo = st.number_input("Quantità da prelevare:", min_value=1, value=1, key="qta")
-with col_motivo:
-    motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
+
+# Campo codice a barre opzionale (se lo usi, scavalca la tendina)
+codice_scannato = st.text_input("📷 OPPURE SCANSIONA CODICE A BARRE (Opzionale):", key="scan_input", placeholder="Inquadra se hai il prodotto in mano")
+motivo_out = st.text_input("Note / Motivazione (opzionale):", placeholder="es. Servizio pranzo, Scaduto, Rotto")
 
 if st.button("🔄 Conferma Prelievo ed Elimina", use_container_width=True):
-    codice_prelievo = codice_scannato.strip()
+    # Capisce se l'utente ha usato lo scanner o la tendina
+    if codice_scannato.strip():
+        codice_prelievo = codice_scannato.strip()
+    else:
+        codice_prelievo = prodotto_selezionato.split(" - ")[0] # Estrae il codice dalla tendina
+        
     if codice_prelievo in inventario:
         if inventario[codice_prelievo]["scorta"] >= quantita_prelievo:
             inventario[codice_prelievo]["scorta"] -= quantita_prelievo
@@ -117,7 +127,6 @@ for codice, info in list(inventario.items()):
     soglia = info["soglia_minima"]
     
     with col_info:
-        # Codice del prodotto GIALLO e grande (#FFD166) come richiesto per i tavoli
         if scorta_attuale <= soglia:
             st.markdown(f"🚨 [<span style='color: #FFD166; font-size: 24px; font-weight: bold;'>{codice}</span>] **{info['nome']}** | In Magazzino: <span style='color: #F72585; font-weight: bold;'>{scorta_attuale} pz</span> (Sotto la soglia!)", unsafe_allow_html=True)
         else:
@@ -132,7 +141,7 @@ for codice, info in list(inventario.items()):
                 st.rerun()
     st.markdown("<hr style='margin: 8px 0; border: 0.5px solid #333;'>", unsafe_allow_html=True)
 
-# REGISTRO STORICO DEI MOVIMENTI
+# REGISTRO STORICO
 st.header("📜 Registro Ultimi Movimenti (Tracciabilità)")
 lista_attivita = carica_log()
 
