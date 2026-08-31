@@ -1,9 +1,13 @@
+
 import streamlit as st
 import json
 import os
 import re
 import shutil
-from datetime import datetime, date
+import pandas as pd
+
+from datetime import datetime
+
 
 # ============================================================
 # CONFIGURAZIONE
@@ -20,18 +24,16 @@ DB_FILE = "stato_magazzino.json"
 LOG_FILE = "storico_magazzino.json"
 BACKUP_DIR = "backup_magazzino"
 
-# IMPORTANTE:
-# Per sicurezza, in produzione è consigliato mettere la password
-# nei Secrets di Streamlit:
-#
-# ADMIN_PASSWORD = "LaTuaPassword"
-#
-# Il valore qui sotto rimane come fallback per mantenere
-# compatibilità con la tua versione precedente.
-PASSWORD_FALLBACK = "Samuelmark123#"
-
+# Soglia fissa per l'allarme rosso
 SOGLIA_ULTIME_SCORTE = 6
+
+# Numero massimo di operazioni conservate nello storico
 MAX_LOG = 500
+
+# Password di emergenza/fallback.
+# Se hai ADMIN_PASSWORD nei Secrets di Streamlit,
+# quella avrà la precedenza.
+PASSWORD_FALLBACK = "Samuelmark123#"
 
 
 # ============================================================
@@ -49,54 +51,107 @@ st.markdown(
     }
 
     .subtitle {
-        color: #777;
+        color: #777777;
         margin-bottom: 1.5rem;
     }
+
+    /* --------------------------------------------------------
+       BOX SCORTE
+       -------------------------------------------------------- */
+
+    .stock-critical {
+        padding: 15px;
+        border-radius: 10px;
+        background-color: #ffe5e5;
+        border: 2px solid #dc3545;
+        color: #111111 !important;
+        margin-bottom: 10px;
+    }
+
+    .stock-warning {
+        padding: 15px;
+        border-radius: 10px;
+        background-color: #fff0d6;
+        border: 2px solid #f0ad4e;
+        color: #111111 !important;
+        margin-bottom: 10px;
+    }
+
+    .stock-ok {
+        padding: 15px;
+        border-radius: 10px;
+        background-color: #e5f6ea;
+        border: 2px solid #198754;
+        color: #111111 !important;
+        margin-bottom: 10px;
+    }
+
+    .stock-critical *,
+    .stock-warning *,
+    .stock-ok * {
+        color: #111111 !important;
+    }
+
+    /* --------------------------------------------------------
+       BOX AVVISI
+       -------------------------------------------------------- */
 
     .danger-box {
         padding: 15px;
         border-radius: 10px;
-        background-color: #f8d7da;
+        background-color: #ffe5e5;
         border-left: 6px solid #dc3545;
+        color: #111111 !important;
         margin-bottom: 10px;
     }
 
     .warning-box {
         padding: 15px;
         border-radius: 10px;
-        background-color: #fff3cd;
+        background-color: #fff0d6;
         border-left: 6px solid #f0ad4e;
+        color: #111111 !important;
         margin-bottom: 10px;
     }
 
     .success-box {
         padding: 15px;
         border-radius: 10px;
-        background-color: #d1e7dd;
+        background-color: #e5f6ea;
         border-left: 6px solid #198754;
+        color: #111111 !important;
         margin-bottom: 10px;
     }
 
-    .stock-critical {
-        color: #dc3545;
-        font-size: 1.15rem;
-        font-weight: 700;
+    .danger-box *,
+    .warning-box *,
+    .success-box * {
+        color: #111111 !important;
     }
 
-    .stock-warning {
-        color: #d97706;
-        font-size: 1.05rem;
-        font-weight: 700;
+    /* --------------------------------------------------------
+       PASSWORD
+       -------------------------------------------------------- */
+
+    button[title="Show password"],
+    button[title="Hide password"] {
+        display: none !important;
     }
 
-    .stock-ok {
-        color: #198754;
-        font-weight: 700;
+    input[type="password"]::-ms-reveal {
+        display: none !important;
     }
 
-    .small-muted {
-        color: #777;
-        font-size: 0.85rem;
+    /* --------------------------------------------------------
+       MOBILE
+       -------------------------------------------------------- */
+
+    @media (max-width: 768px) {
+
+        .main-title {
+            font-size: 1.8rem;
+        }
+
     }
 
     </style>
@@ -124,9 +179,14 @@ if "codice_da_eliminare" not in st.session_state:
 # ============================================================
 
 def get_password():
+
     try:
+
         if "ADMIN_PASSWORD" in st.secrets:
-            return st.secrets["ADMIN_PASSWORD"]
+            return str(
+                st.secrets["ADMIN_PASSWORD"]
+            )
+
     except Exception:
         pass
 
@@ -134,10 +194,51 @@ def get_password():
 
 
 # ============================================================
-# DATABASE
+# BACKUP
+# ============================================================
+
+def crea_backup(file_da_salvare):
+
+    if not os.path.exists(file_da_salvare):
+        return None
+
+    try:
+
+        os.makedirs(
+            BACKUP_DIR,
+            exist_ok=True
+        )
+
+        nome_file = os.path.basename(
+            file_da_salvare
+        )
+
+        timestamp = datetime.now().strftime(
+            "%Y-%m-%d_%H-%M-%S-%f"
+        )
+
+        percorso_backup = os.path.join(
+            BACKUP_DIR,
+            f"{timestamp}_{nome_file}"
+        )
+
+        shutil.copy2(
+            file_da_salvare,
+            percorso_backup
+        )
+
+        return percorso_backup
+
+    except Exception:
+        return None
+
+
+# ============================================================
+# DATABASE MAGAZZINO
 # ============================================================
 
 def database_predefinito():
+
     return {
         "101": {
             "nome": "Pasta Barilla",
@@ -157,77 +258,170 @@ def database_predefinito():
     }
 
 
+def normalizza_inventario(dati):
+
+    if not isinstance(dati, dict):
+        return {}
+
+    risultato = {}
+
+    for codice, info in dati.items():
+
+        codice = str(codice).strip()
+
+        if not codice:
+            continue
+
+        if not isinstance(info, dict):
+
+            risultato[codice] = {
+                "nome": str(info),
+                "scorta": 0,
+                "soglia_minima": 5
+            }
+
+            continue
+
+        nome = str(
+            info.get(
+                "nome",
+                codigo_se_nome_mancante(codice)
+            )
+        ).strip()
+
+        try:
+            scorta = int(
+                float(
+                    info.get(
+                        "scorta",
+                        0
+                    )
+                )
+            )
+        except Exception:
+            scorta = 0
+
+        try:
+            soglia = int(
+                float(
+                    info.get(
+                        "soglia_minima",
+                        5
+                    )
+                )
+            )
+        except Exception:
+            soglia = 5
+
+        scorta = max(
+            0,
+            scorta
+        )
+
+        soglia = max(
+            0,
+            soglia
+        )
+
+        risultato[codice] = {
+            "nome": nome if nome else codice,
+            "scorta": scorta,
+            "soglia_minima": soglia
+        }
+
+    return risultato
+
+
+def codigo_se_nome_mancante(codice):
+
+    return f"Articolo {codice}"
+
+
 def carica_magazzino():
+
     if not os.path.exists(DB_FILE):
+
         return database_predefinito()
 
     try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
+
+        with open(
+            DB_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
             dati = json.load(f)
 
-        if not isinstance(dati, dict):
-            return {}
-
-        # Normalizzazione dati vecchi
-        for codice, info in dati.items():
-
-            if not isinstance(info, dict):
-                dati[codice] = {
-                    "nome": str(info),
-                    "scorta": 0,
-                    "soglia_minima": 5
-                }
-                continue
-
-            info.setdefault("nome", codice)
-            info.setdefault("scorta", 0)
-            info.setdefault("soglia_minima", 5)
-
-            try:
-                info["scorta"] = int(info["scorta"])
-            except Exception:
-                info["scorta"] = 0
-
-            try:
-                info["soglia_minima"] = int(info["soglia_minima"])
-            except Exception:
-                info["soglia_minima"] = 5
-
-        return dati
-
-    except Exception:
-        st.error(
-            "⚠️ Impossibile leggere il database del magazzino. "
-            "Controlla il file stato_magazzino.json."
+        return normalizza_inventario(
+            dati
         )
+
+    except Exception as e:
+
+        st.error(
+            "⚠️ Non è stato possibile leggere "
+            f"'{DB_FILE}'."
+        )
+
+        st.caption(
+            f"Dettaglio tecnico: {e}"
+        )
+
         return {}
 
 
-def salva_magazzino(inventario, backup=True):
-    if backup and os.path.exists(DB_FILE):
-        crea_backup(DB_FILE)
+def salva_magazzino(
+    inventario,
+    backup=True
+):
 
     try:
-        with open(DB_FILE, "w", encoding="utf-8") as f:
+
+        if backup and os.path.exists(DB_FILE):
+            crea_backup(DB_FILE)
+
+        with open(
+            DB_FILE,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
             json.dump(
                 inventario,
                 f,
                 indent=4,
                 ensure_ascii=False
             )
+
         return True
 
     except Exception as e:
-        st.error(f"❌ Errore nel salvataggio: {e}")
+
+        st.error(
+            f"❌ Errore durante il salvataggio: {e}"
+        )
+
         return False
 
 
+# ============================================================
+# DATABASE STORICO
+# ============================================================
+
 def carica_log():
+
     if not os.path.exists(LOG_FILE):
         return []
 
     try:
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
+
+        with open(
+            LOG_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
             dati = json.load(f)
 
         if isinstance(dati, list):
@@ -235,62 +429,48 @@ def carica_log():
 
         return []
 
-    except Exception:
+    except Exception as e:
+
+        st.warning(
+            "⚠️ Il registro storico non è leggibile."
+        )
+
         return []
 
 
-def salva_log(lista_log, backup=True):
-    if backup and os.path.exists(LOG_FILE):
-        crea_backup(LOG_FILE)
+def salva_log(
+    lista_log,
+    backup=True
+):
 
     try:
-        with open(LOG_FILE, "w", encoding="utf-8") as f:
+
+        if backup and os.path.exists(LOG_FILE):
+            crea_backup(LOG_FILE)
+
+        with open(
+            LOG_FILE,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
             json.dump(
                 lista_log[:MAX_LOG],
                 f,
                 indent=4,
                 ensure_ascii=False
             )
+
         return True
 
     except Exception as e:
-        st.error(f"❌ Errore nel salvataggio dello storico: {e}")
+
+        st.error(
+            f"❌ Errore durante il salvataggio dello storico: {e}"
+        )
+
         return False
 
-
-# ============================================================
-# BACKUP
-# ============================================================
-
-def crea_backup(file_da_salvare):
-    if not os.path.exists(file_da_salvare):
-        return None
-
-    try:
-        os.makedirs(BACKUP_DIR, exist_ok=True)
-
-        nome_file = os.path.basename(file_da_salvare)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-        percorso_backup = os.path.join(
-            BACKUP_DIR,
-            f"{timestamp}_{nome_file}"
-        )
-
-        shutil.copy2(
-            file_da_salvare,
-            percorso_backup
-        )
-
-        return percorso_backup
-
-    except Exception:
-        return None
-
-
-# ============================================================
-# STORICO
-# ============================================================
 
 def aggiungi_evento(
     azione,
@@ -302,6 +482,7 @@ def aggiungi_evento(
     scorta_prima=None,
     scorta_dopo=None
 ):
+
     logs = carica_log()
 
     evento = {
@@ -311,17 +492,20 @@ def aggiungi_evento(
         "orario": datetime.now().strftime(
             "%d/%m/%Y %H:%M:%S"
         ),
-        "azione": azione,
+        "azione": str(azione),
         "codice": str(codice),
-        "nome": nome,
-        "quantita": quantita,
-        "operatore": operatore,
-        "motivo": motivo,
+        "nome": str(nome),
+        "quantita": int(quantita),
+        "operatore": str(operatore),
+        "motivo": str(motivo),
         "scorta_prima": scorta_prima,
         "scorta_dopo": scorta_dopo
     }
 
-    logs.insert(0, evento)
+    logs.insert(
+        0,
+        evento
+    )
 
     salva_log(
         logs,
@@ -330,10 +514,65 @@ def aggiungi_evento(
 
 
 # ============================================================
-# FUNZIONI MAGAZZINO
+# FUNZIONI UTILI
 # ============================================================
 
-def stato_scorta(scorta, soglia):
+def pulisci_codice(codice):
+
+    codice = str(codice).strip()
+
+    codice = re.sub(
+        r"\s+",
+        "",
+        codice
+    )
+
+    return codice
+
+
+def trova_codice_da_selezione(selezione):
+
+    if not selezione:
+        return None
+
+    return str(
+        selezione
+    ).split(
+        " - ",
+        1
+    )[0].strip()
+
+
+def formatta_operatore(
+    cuoco,
+    cameriere
+):
+
+    firme = []
+
+    if str(cuoco).strip():
+
+        firme.append(
+            f"Kock: {str(cuoco).strip()}"
+        )
+
+    if str(cameriere).strip():
+
+        firme.append(
+            f"Servering: {str(cameriere).strip()}"
+        )
+
+    if firme:
+        return " & ".join(firme)
+
+    return "Non specificato"
+
+
+def stato_scorta(
+    scorta,
+    soglia
+):
+
     if scorta <= SOGLIA_ULTIME_SCORTE:
         return "critica"
 
@@ -343,57 +582,33 @@ def stato_scorta(scorta, soglia):
     return "ok"
 
 
-def articoli_critici(inventario):
-    return {
-        codice: info
-        for codice, info in inventario.items()
-        if int(info.get("scorta", 0)) <= SOGLIA_ULTIME_SCORTE
-    }
+def get_critici(inventario):
 
-
-def articoli_da_riordinare(inventario):
     return {
         codice: info
         for codice, info in inventario.items()
         if int(info.get("scorta", 0))
-        <= int(info.get("soglia_minima", 5))
+        <= SOGLIA_ULTIME_SCORTE
     }
 
 
-def pulisci_codice(codice):
-    codice = str(codice).strip()
-    codice = re.sub(r"\s+", "", codice)
-    return codice
+def get_da_riordinare(inventario):
 
-
-def trova_codice_da_selezione(selezione):
-    if not selezione:
-        return None
-
-    return selezione.split(" - ", 1)[0].strip()
-
-
-def formatta_operatore(cuoco, cameriere):
-    firme = []
-
-    if cuoco.strip():
-        firme.append(
-            f"Kock: {cuoco.strip()}"
+    return {
+        codice: info
+        for codice, info in inventario.items()
+        if int(info.get("scorta", 0))
+        <= int(
+            info.get(
+                "soglia_minima",
+                5
+            )
         )
-
-    if cameriere.strip():
-        firme.append(
-            f"Servering: {cameriere.strip()}"
-        )
-
-    if firme:
-        return " & ".join(firme)
-
-    return "Non specificato"
+    }
 
 
 # ============================================================
-# CARICAMENTO
+# CARICAMENTO DATI
 # ============================================================
 
 inventario = carica_magazzino()
@@ -417,25 +632,11 @@ st.markdown(
 
 
 # ============================================================
-# SIDEBAR - LOGIN
+# SIDEBAR - ACCESSO TITOLARE
 # ============================================================
 
-st.sidebar.header("🔐 Area Riservata Titolare")
-
-st.markdown(
-    """
-    <style>
-    button[title="Show password"],
-    button[title="Hide password"] {
-        display: none !important;
-    }
-
-    input[type="password"]::-ms-reveal {
-        display: none !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
+st.sidebar.header(
+    "🔐 Area Riservata Titolare"
 )
 
 
@@ -455,6 +656,7 @@ if not st.session_state.autenticato:
         if password_inserita == get_password():
 
             st.session_state.autenticato = True
+
             st.rerun()
 
         else:
@@ -476,7 +678,10 @@ else:
     ):
 
         st.session_state.autenticato = False
+
         st.session_state.conferma_eliminazione = False
+        st.session_state.codice_da_eliminare = None
+
         st.rerun()
 
 
@@ -488,17 +693,22 @@ if st.session_state.autenticato:
 
     st.sidebar.markdown("---")
 
-    st.sidebar.header("📦 Gestione Articoli")
+    st.sidebar.header(
+        "📦 Gestione Articoli"
+    )
 
-    tab_aggiungi, tab_modifica = st.sidebar.tabs(
-        ["➕ Nuovo", "✏️ Modifica"]
+    tab_nuovo, tab_modifica = st.sidebar.tabs(
+        [
+            "➕ Nuovo",
+            "✏️ Modifica"
+        ]
     )
 
     # ========================================================
     # NUOVO ARTICOLO
     # ========================================================
 
-    with tab_aggiungi:
+    with tab_nuovo:
 
         nuovo_codice = st.text_input(
             "Codice / Barcode:",
@@ -559,35 +769,40 @@ if st.session_state.autenticato:
 
             else:
 
-                crea_backup(DB_FILE)
+                scorta_iniziale = int(
+                    nuova_scorta
+                )
+
+                soglia_iniziale = int(
+                    nuova_soglia
+                )
 
                 inventario[codice] = {
                     "nome": nome,
-                    "scorta": int(nuova_scorta),
-                    "soglia_minima": int(nuova_soglia)
+                    "scorta": scorta_iniziale,
+                    "soglia_minima": soglia_iniziale
                 }
 
-                salva_magazzino(
-                    inventario,
-                    backup=False
-                )
+                if salva_magazzino(
+                    inventario
+                ):
 
-                aggiungi_evento(
-                    "NUOVO ARTICOLO (➕)",
-                    codice,
-                    nome,
-                    int(nuova_scorta),
-                    "Titolare",
-                    "Nuovo articolo creato",
-                    0,
-                    int(nuova_scorta)
-                )
+                    aggiungi_evento(
+                        "NUOVO ARTICOLO (➕)",
+                        codice,
+                        nome,
+                        scorta_iniziale,
+                        "Titolare",
+                        "Nuovo articolo creato",
+                        0,
+                        scorta_iniziale
+                    )
 
-                st.success(
-                    f"✅ {nome} creato."
-                )
+                    st.success(
+                        f"✅ {nome} creato."
+                    )
 
-                st.rerun()
+                    st.rerun()
 
     # ========================================================
     # MODIFICA ARTICOLO
@@ -599,7 +814,8 @@ if st.session_state.autenticato:
 
             elenco_modifica = [
                 f"{codice} - {info['nome']}"
-                for codice, info in inventario.items()
+                for codice, info
+                in inventario.items()
             ]
 
             articolo_modifica = st.selectbox(
@@ -608,8 +824,10 @@ if st.session_state.autenticato:
                 key="articolo_modifica"
             )
 
-            codice_modifica = trova_codice_da_selezione(
-                articolo_modifica
+            codice_modifica = (
+                trova_codice_da_selezione(
+                    articolo_modifica
+                )
             )
 
             info_modifica = inventario[
@@ -646,11 +864,15 @@ if st.session_state.autenticato:
                 use_container_width=True
             ):
 
-                nuovo_codice_modificato = pulisci_codice(
-                    nuovo_codice_modificato
+                nuovo_codice_modificato = (
+                    pulisci_codice(
+                        nuovo_codice_modificato
+                    )
                 )
 
-                nome_modificato = nome_modificato.strip()
+                nome_modificato = (
+                    nome_modificato.strip()
+                )
 
                 if not nuovo_codice_modificato:
 
@@ -665,8 +887,10 @@ if st.session_state.autenticato:
                     )
 
                 elif (
-                    nuovo_codice_modificato != codice_modifica
-                    and nuovo_codice_modificato in inventario
+                    nuovo_codice_modificato
+                    != codice_modifica
+                    and nuovo_codice_modificato
+                    in inventario
                 ):
 
                     st.error(
@@ -675,49 +899,54 @@ if st.session_state.autenticato:
 
                 else:
 
-                    crea_backup(DB_FILE)
-
-                    dati_articolo = inventario.pop(
-                        codice_modifica
+                    scorta_attuale = int(
+                        info_modifica.get(
+                            "scorta",
+                            0
+                        )
                     )
 
-                    dati_articolo["nome"] = nome_modificato
-                    dati_articolo["soglia_minima"] = int(
-                        soglia_modificata
+                    inventario.pop(
+                        codice_modifica
                     )
 
                     inventario[
                         nuovo_codice_modificato
-                    ] = dati_articolo
+                    ] = {
+                        "nome": nome_modificato,
+                        "scorta": scorta_attuale,
+                        "soglia_minima": int(
+                            soglia_modificata
+                        )
+                    }
 
-                    salva_magazzino(
-                        inventario,
-                        backup=False
-                    )
+                    if salva_magazzino(
+                        inventario
+                    ):
 
-                    aggiungi_evento(
-                        "MODIFICA ARTICOLO (✏️)",
-                        nuovo_codice_modificato,
-                        nome_modificato,
-                        0,
-                        "Titolare",
-                        (
-                            f"Modificato articolo "
-                            f"{codice_modifica}"
-                        ),
-                        dati_articolo.get("scorta", 0),
-                        dati_articolo.get("scorta", 0)
-                    )
+                        aggiungi_evento(
+                            "MODIFICA ARTICOLO (✏️)",
+                            nuovo_codice_modificato,
+                            nome_modificato,
+                            0,
+                            "Titolare",
+                            (
+                                f"Modifica da codice "
+                                f"{codice_modifica}"
+                            ),
+                            scorta_attuale,
+                            scorta_attuale
+                        )
 
-                    st.success(
-                        "✅ Articolo modificato."
-                    )
+                        st.success(
+                            "✅ Articolo modificato."
+                        )
 
-                    st.rerun()
+                        st.rerun()
 
         else:
 
-            st.sidebar.info(
+            st.info(
                 "Nessun articolo presente."
             )
 
@@ -727,44 +956,58 @@ if st.session_state.autenticato:
 # ============================================================
 
 st.markdown("---")
-st.header("📊 Situazione Magazzino")
 
-numero_articoli = len(inventario)
-
-pezzi_totali = sum(
-    int(info.get("scorta", 0))
-    for info in inventario.values()
+st.header(
+    "📊 Situazione Magazzino"
 )
 
-critici = articoli_critici(
+numero_articoli = len(
     inventario
 )
 
-da_riordinare = articoli_da_riordinare(
+pezzi_totali = sum(
+    int(
+        info.get(
+            "scorta",
+            0
+        )
+    )
+    for info in inventario.values()
+)
+
+critici = get_critici(
+    inventario
+)
+
+da_riordinare = get_da_riordinare(
     inventario
 )
 
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
+
     st.metric(
         "📦 Articoli",
         numero_articoli
     )
 
 with c2:
+
     st.metric(
         "🔢 Pezzi totali",
         pezzi_totali
     )
 
 with c3:
+
     st.metric(
         "🔴 Ultime 6",
         len(critici)
     )
 
 with c4:
+
     st.metric(
         "🟠 Da riordinare",
         len(da_riordinare)
@@ -772,17 +1015,18 @@ with c4:
 
 
 # ============================================================
-# ALLARMI
+# ALLARME ULTIME 6
 # ============================================================
 
 if critici:
 
     st.markdown(
-        """
+        f"""
         <div class="danger-box">
         <strong>🚨 ATTENZIONE — ULTIME SCORTE!</strong><br>
-        Ci sono articoli con 6 pezzi o meno in magazzino.
-        Controlla subito le scorte.
+        Ci sono <strong>{len(critici)}</strong>
+        articoli con {SOGLIA_ULTIME_SCORTE} pezzi
+        o meno.
         </div>
         """,
         unsafe_allow_html=True
@@ -795,33 +1039,38 @@ if critici:
             <div class="danger-box">
             🔴 <strong>ULTIME SCORTE</strong><br>
             <strong>{info['nome']}</strong>
-            — Codice: {codice}
-            — Rimasti: <strong>{info['scorta']} pz</strong>
+            — Codice: {codice}<br>
+            Rimasti:
+            <strong>{info['scorta']} pz</strong>
             </div>
             """,
             unsafe_allow_html=True
         )
 
 
-if da_riordinare:
+# ============================================================
+# AVVISO DA RIORDINARE
+# ============================================================
 
-    solo_warning = {
-        codice: info
-        for codice, info in da_riordinare.items()
-        if codice not in critici
-    }
+solo_warning = {
+    codice: info
+    for codice, info
+    in da_riordinare.items()
+    if codice not in critici
+}
 
-    if solo_warning:
+if solo_warning:
 
-        st.markdown(
-            """
-            <div class="warning-box">
-            <strong>🟠 ARTICOLI DA RIORDINARE</strong><br>
-            Alcuni prodotti hanno raggiunto la soglia minima.
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    st.markdown(
+        f"""
+        <div class="warning-box">
+        <strong>🟠 ARTICOLI DA RIORDINARE</strong><br>
+        Ci sono <strong>{len(solo_warning)}</strong>
+        articoli che hanno raggiunto la soglia minima.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 # ============================================================
@@ -829,11 +1078,14 @@ if da_riordinare:
 # ============================================================
 
 st.markdown("---")
-st.header("🛒 Scarico Rapido")
+
+st.header(
+    "🛒 Scarico Rapido"
+)
+
 st.caption(
     "Registrazione delle merci prelevate dalla cucina o dalla sala."
 )
-
 
 col_personale, col_prodotto, col_quantita = st.columns(
     [1.2, 1.8, 1]
@@ -857,7 +1109,8 @@ with col_prodotto:
 
     elenco_prodotti = [
         f"{codice} - {info['nome']}"
-        for codice, info in inventario.items()
+        for codice, info
+        in inventario.items()
     ]
 
     if elenco_prodotti:
@@ -897,7 +1150,8 @@ with col_quantita:
 motivo_out = st.text_input(
     "📝 Note / Motivazione:",
     placeholder=(
-        "Es. Servizio pranzo, cena, scaduto, rotto..."
+        "Es. Servizio pranzo, cena, "
+        "scaduto, rotto..."
     )
 )
 
@@ -918,20 +1172,24 @@ if st.button(
 
     elif prodotto_selezionato:
 
-        codice_prelievo = trova_codice_da_selezione(
-            prodotto_selezionato
+        codice_prelievo = (
+            trova_codice_da_selezione(
+                prodotto_selezionato
+            )
         )
 
     if not codice_prelievo:
 
         st.error(
-            "❌ Seleziona un prodotto o inserisci un codice."
+            "❌ Seleziona un prodotto "
+            "o inserisci un codice."
         )
 
     elif codice_prelievo not in inventario:
 
         st.error(
-            f"❌ Codice {codice_prelievo} non trovato."
+            f"❌ Codice {codice_prelievo} "
+            "non trovato."
         )
 
     else:
@@ -941,7 +1199,10 @@ if st.button(
         ]
 
         scorta_prima = int(
-            info.get("scorta", 0)
+            info.get(
+                "scorta",
+                0
+            )
         )
 
         quantita = int(
@@ -961,67 +1222,73 @@ if st.button(
                 scorta_prima - quantita
             )
 
-            crea_backup(DB_FILE)
-
             inventario[
                 codice_prelievo
             ]["scorta"] = scorta_dopo
 
-            salva_magazzino(
-                inventario,
-                backup=False
-            )
-
-            operatore = formatta_operatore(
-                nome_cuoco,
-                nome_cameriere
-            )
-
-            aggiungi_evento(
-                "SCARICO (➖)",
-                codice_prelievo,
-                info["nome"],
-                quantita,
-                operatore,
-                motivo_out.strip(),
-                scorta_prima,
-                scorta_dopo
-            )
-
-            st.success(
-                f"✅ Prelevati {quantita} pz di "
-                f"{info['nome']}."
-            )
-
-            if scorta_dopo <= SOGLIA_ULTIME_SCORTE:
-
-                st.error(
-                    f"🚨 ATTENZIONE: rimangono soltanto "
-                    f"{scorta_dopo} pz di {info['nome']}!"
-                )
-
-            elif scorta_dopo <= int(
-                info.get("soglia_minima", 5)
+            if salva_magazzino(
+                inventario
             ):
 
-                st.warning(
-                    f"⚠️ {info['nome']} è sotto la soglia "
-                    f"minima: {scorta_dopo} pz."
+                operatore = formatta_operatore(
+                    nome_cuoco,
+                    nome_cameriere
                 )
 
-            st.rerun()
+                aggiungi_evento(
+                    "SCARICO (➖)",
+                    codice_prelievo,
+                    info["nome"],
+                    quantita,
+                    operatore,
+                    motivo_out.strip(),
+                    scorta_prima,
+                    scorta_dopo
+                )
+
+                st.success(
+                    f"✅ Prelevati {quantita} pz "
+                    f"di {info['nome']}."
+                )
+
+                if scorta_dopo <= SOGLIA_ULTIME_SCORTE:
+
+                    st.error(
+                        f"🚨 ATTENZIONE: rimangono "
+                        f"soltanto {scorta_dopo} pz "
+                        f"di {info['nome']}!"
+                    )
+
+                elif scorta_dopo <= int(
+                    info.get(
+                        "soglia_minima",
+                        5
+                    )
+                ):
+
+                    st.warning(
+                        f"⚠️ {info['nome']} è "
+                        f"sotto la soglia minima: "
+                        f"{scorta_dopo} pz."
+                    )
+
+                st.rerun()
 
 
 # ============================================================
-# RICERCA INVENTARIO
+# INVENTARIO ATTUALE
 # ============================================================
 
 st.markdown("---")
-st.header("📦 Scorte Attuali")
+
+st.header(
+    "📦 Scorte Attuali"
+)
 
 ricerca = st.text_input(
     "🔎 Cerca articolo per nome o codice:",
-    placeholder="Es. mozzarella oppure 101"
+    placeholder="Es. mozzarella oppure 101",
+    key="ricerca_scorte"
 )
 
 inventario_visualizzato = {}
@@ -1034,7 +1301,8 @@ for codice, info in inventario.items():
 
     if (
         not ricerca.strip()
-        or ricerca.lower().strip() in testo_ricerca
+        or ricerca.lower().strip()
+        in testo_ricerca
     ):
 
         inventario_visualizzato[
@@ -1050,16 +1318,23 @@ if not inventario_visualizzato:
 
 else:
 
-    # --------------------------------------------------------
-    # ORDINE: prima quelli critici
-    # --------------------------------------------------------
-
+    # Prima i prodotti con meno pezzi
     inventario_visualizzato = dict(
         sorted(
             inventario_visualizzato.items(),
             key=lambda item: (
-                item[1].get("scorta", 0),
-                item[1].get("nome", "")
+                int(
+                    item[1].get(
+                        "scorta",
+                        0
+                    )
+                ),
+                str(
+                    item[1].get(
+                        "nome",
+                        ""
+                    )
+                ).lower()
             )
         )
     )
@@ -1067,11 +1342,17 @@ else:
     for codice, info in inventario_visualizzato.items():
 
         scorta = int(
-            info.get("scorta", 0)
+            info.get(
+                "scorta",
+                0
+            )
         )
 
         soglia = int(
-            info.get("soglia_minima", 5)
+            info.get(
+                "soglia_minima",
+                5
+            )
         )
 
         stato = stato_scorta(
@@ -1083,20 +1364,22 @@ else:
             [3, 1]
         )
 
+        # ----------------------------------------------------
+        # ARTICOLO
+        # ----------------------------------------------------
+
         with col_info:
 
             if stato == "critica":
 
                 st.markdown(
                     f"""
-                    <div class="danger-box">
-                    🔴 <strong>ULTIME 6 SCORTE!</strong><br>
+                    <div class="stock-critical">
+                    🔴 <strong>ULTIME 6 SCORTE!</strong><br><br>
                     <strong>{info['nome']}</strong><br>
                     Codice: {codice}<br>
                     Rimasti:
-                    <span class="stock-critical">
-                    {scorta} pz
-                    </span>
+                    <strong>{scorta} pz</strong>
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -1106,15 +1389,14 @@ else:
 
                 st.markdown(
                     f"""
-                    <div class="warning-box">
-                    🟠 <strong>DA RIORDINARE</strong><br>
+                    <div class="stock-warning">
+                    🟠 <strong>DA RIORDINARE</strong><br><br>
                     <strong>{info['nome']}</strong><br>
                     Codice: {codice}<br>
                     Rimasti:
-                    <span class="stock-warning">
-                    {scorta} pz
-                    </span>
-                    — Soglia minima: {soglia}
+                    <strong>{scorta} pz</strong><br>
+                    Soglia minima:
+                    <strong>{soglia} pz</strong>
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -1124,18 +1406,22 @@ else:
 
                 st.markdown(
                     f"""
-                    <div class="success-box">
-                    🟢 <strong>{info['nome']}</strong><br>
+                    <div class="stock-ok">
+                    🟢 <strong>DISPONIBILE</strong><br><br>
+                    <strong>{info['nome']}</strong><br>
                     Codice: {codice}<br>
                     Rimasti:
-                    <span class="stock-ok">
-                    {scorta} pz
-                    </span>
-                    — Soglia minima: {soglia}
+                    <strong>{scorta} pz</strong><br>
+                    Soglia minima:
+                    <strong>{soglia} pz</strong>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
+
+        # ----------------------------------------------------
+        # AZIONE RAPIDA
+        # ----------------------------------------------------
 
         with col_azioni:
 
@@ -1147,39 +1433,38 @@ else:
                 use_container_width=True
             ):
 
-                if scorta > 0:
-
-                    crea_backup(DB_FILE)
-
-                    inventario[codice]["scorta"] -= 1
-
-                    nuova_scorta = inventario[
-                        codice
-                    ]["scorta"]
-
-                    salva_magazzino(
-                        inventario,
-                        backup=False
-                    )
-
-                    aggiungi_evento(
-                        "SCARICO RAPIDO (➖)",
-                        codice,
-                        info["nome"],
-                        1,
-                        "Operazione rapida",
-                        "Scarico rapido 1 pezzo",
-                        scorta,
-                        nuova_scorta
-                    )
-
-                    st.rerun()
-
-                else:
+                if scorta <= 0:
 
                     st.error(
                         "Scorta già a zero."
                     )
+
+                else:
+
+                    nuova_scorta = (
+                        scorta - 1
+                    )
+
+                    inventario[
+                        codice
+                    ]["scorta"] = nuova_scorta
+
+                    if salva_magazzino(
+                        inventario
+                    ):
+
+                        aggiungi_evento(
+                            "SCARICO RAPIDO (➖)",
+                            codice,
+                            info["nome"],
+                            1,
+                            "Operazione rapida",
+                            "Scarico rapido 1 pezzo",
+                            scorta,
+                            nuova_scorta
+                        )
+
+                        st.rerun()
 
 
 # ============================================================
@@ -1187,9 +1472,13 @@ else:
 # ============================================================
 
 st.markdown("---")
-st.header("📜 Registro Storico Merci")
+
+st.header(
+    "📜 Registro Storico Merci"
+)
 
 logs = carica_log()
+
 
 if not logs:
 
@@ -1212,22 +1501,31 @@ else:
                 "ELIMINATO",
                 "NUOVO ARTICOLO",
                 "MODIFICA ARTICOLO"
-            ]
+            ],
+            key="filtro_azione"
         )
 
     with col_filtro2:
 
         filtro_ricerca_log = st.text_input(
             "🔎 Cerca nello storico:",
-            placeholder="Nome, codice, operatore..."
+            placeholder="Nome, codice, operatore...",
+            key="filtro_ricerca_log"
         )
 
     with col_filtro3:
 
         numero_righe = st.selectbox(
             "Visualizza:",
-            [20, 50, 100, 250, 500],
-            index=0
+            [
+                20,
+                50,
+                100,
+                250,
+                500
+            ],
+            index=0,
+            key="numero_righe"
         )
 
     logs_filtrati = []
@@ -1235,22 +1533,44 @@ else:
     for evento in logs:
 
         azione = str(
-            evento.get("azione", "")
+            evento.get(
+                "azione",
+                ""
+            )
         )
 
         testo_evento = " ".join(
             [
-                str(evento.get("codice", "")),
-                str(evento.get("nome", "")),
-                str(evento.get("operatore", "")),
-                str(evento.get("motivo", ""))
+                str(
+                    evento.get(
+                        "codice",
+                        ""
+                    )
+                ),
+                str(
+                    evento.get(
+                        "nome",
+                        ""
+                    )
+                ),
+                str(
+                    evento.get(
+                        "operatore",
+                        ""
+                    )
+                ),
+                str(
+                    evento.get(
+                        "motivo",
+                        ""
+                    )
+                )
             ]
         ).lower()
 
         if filtro_azione != "Tutte":
 
             if filtro_azione not in azione:
-
                 continue
 
         if (
@@ -1266,7 +1586,7 @@ else:
         )
 
     logs_filtrati = logs_filtrati[
-        :numero_righe
+        :int(numero_righe)
     ]
 
     if not logs_filtrati:
@@ -1322,8 +1642,12 @@ else:
                 }
             )
 
-        df_log = st.dataframe(
-            dati_storico,
+        df_log = pd.DataFrame(
+            dati_storico
+        )
+
+        st.dataframe(
+            df_log,
             use_container_width=True,
             hide_index=True,
             height=500
@@ -1331,13 +1655,16 @@ else:
 
 
 # ============================================================
-# ESPORTAZIONE STORICO
+# ESPORTAZIONE CSV
 # ============================================================
 
 if logs:
 
     st.markdown("---")
-    st.subheader("📤 Esporta dati")
+
+    st.subheader(
+        "📤 Esporta Storico"
+    )
 
     dati_export = []
 
@@ -1407,63 +1734,103 @@ if logs:
 
 
 # ============================================================
-# AREA TITOLARE - DOWNLOAD DATABASE
+# STRUMENTI TITOLARE
 # ============================================================
 
 if st.session_state.autenticato:
 
     st.markdown("---")
-    st.header("🔐 Strumenti Titolare")
+
+    st.header(
+        "🔐 Strumenti Titolare"
+    )
 
     col_db, col_log, col_backup = st.columns(3)
+
+    # --------------------------------------------------------
+    # DOWNLOAD DATABASE
+    # --------------------------------------------------------
 
     with col_db:
 
         if os.path.exists(DB_FILE):
 
-            with open(
-                DB_FILE,
-                "rb"
-            ) as f:
+            try:
+
+                with open(
+                    DB_FILE,
+                    "rb"
+                ) as f:
+
+                    dati_db_download = f.read()
 
                 st.download_button(
                     "📥 Scarica Database",
-                    data=f,
+                    data=dati_db_download,
                     file_name="stato_magazzino_backup.json",
                     mime="application/json",
                     use_container_width=True
                 )
 
+            except Exception:
+
+                st.error(
+                    "Impossibile scaricare il database."
+                )
+
+    # --------------------------------------------------------
+    # DOWNLOAD STORICO
+    # --------------------------------------------------------
+
     with col_log:
 
         if os.path.exists(LOG_FILE):
 
-            with open(
-                LOG_FILE,
-                "rb"
-            ) as f:
+            try:
+
+                with open(
+                    LOG_FILE,
+                    "rb"
+                ) as f:
+
+                    dati_log_download = f.read()
 
                 st.download_button(
                     "📥 Scarica Registro",
-                    data=f,
+                    data=dati_log_download,
                     file_name="storico_magazzino_backup.json",
                     mime="application/json",
                     use_container_width=True
                 )
 
+            except Exception:
+
+                st.error(
+                    "Impossibile scaricare lo storico."
+                )
+
+    # --------------------------------------------------------
+    # BACKUP
+    # --------------------------------------------------------
+
     with col_backup:
 
-        if os.path.exists(BACKUP_DIR):
+        if os.path.exists(
+            BACKUP_DIR
+        ):
 
             try:
 
                 numero_backup = len(
                     [
                         file
-                        for file in os.listdir(
+                        for file
+                        in os.listdir(
                             BACKUP_DIR
                         )
-                        if file.endswith(".json")
+                        if file.endswith(
+                            ".json"
+                        )
                     ]
                 )
 
@@ -1482,19 +1849,23 @@ if st.session_state.autenticato:
 
 
 # ============================================================
-# ELIMINAZIONE ARTICOLO - AREA TITOLARE
+# ELIMINAZIONE ARTICOLO
 # ============================================================
 
 if st.session_state.autenticato:
 
     st.markdown("---")
-    st.header("🗑️ Eliminazione Articolo")
+
+    st.header(
+        "🗑️ Eliminazione Articolo"
+    )
 
     if inventario:
 
         elenco_elimina = [
             f"{codice} - {info['nome']}"
-            for codice, info in inventario.items()
+            for codice, info
+            in inventario.items()
         ]
 
         prodotto_da_eliminare = st.selectbox(
@@ -1507,115 +1878,138 @@ if st.session_state.autenticato:
             prodotto_da_eliminare
         )
 
-        info_el = inventario[
+        if (
             codice_el
-        ]
+            and codice_el in inventario
+        ):
 
-        st.warning(
-            f"Stai per eliminare: "
-            f"**{info_el['nome']}** "
-            f"(codice {codice_el})"
-        )
+            info_el = inventario[
+                codice_el
+            ]
 
-        if not st.session_state.conferma_eliminazione:
-
-            if st.button(
-                "🗑️ Elimina Definitivamente",
-                type="primary",
-                use_container_width=True
-            ):
-
-                st.session_state.codice_da_eliminare = codice_el
-                st.session_state.conferma_eliminazione = True
-                st.rerun()
-
-        else:
-
-            codice_conferma = (
-                st.session_state.codice_da_eliminare
+            st.warning(
+                f"Stai per eliminare: "
+                f"**{info_el['nome']}** "
+                f"(codice {codice_el})"
             )
 
-            if (
-                codice_conferma
-                and codice_conferma in inventario
-            ):
+            if not st.session_state.conferma_eliminazione:
 
-                nome_conferma = inventario[
-                    codice_conferma
-                ]["nome"]
+                if st.button(
+                    "🗑️ Elimina Definitivamente",
+                    type="primary",
+                    use_container_width=True
+                ):
 
-                st.error(
-                    f"⚠️ CONFERMA FINALE: eliminare "
-                    f"**{nome_conferma}**?"
+                    st.session_state.codice_da_eliminare = (
+                        codice_el
+                    )
+
+                    st.session_state.conferma_eliminazione = (
+                        True
+                    )
+
+                    st.rerun()
+
+            else:
+
+                codice_conferma = (
+                    st.session_state.codice_da_eliminare
                 )
 
-                col_no, col_si = st.columns(2)
+                if (
+                    codice_conferma
+                    and codice_conferma in inventario
+                ):
 
-                with col_no:
+                    nome_conferma = inventario[
+                        codice_conferma
+                    ]["nome"]
 
-                    if st.button(
-                        "❌ Annulla",
-                        use_container_width=True
-                    ):
+                    st.error(
+                        f"⚠️ CONFERMA FINALE: "
+                        f"eliminare **{nome_conferma}**?"
+                    )
 
-                        st.session_state.conferma_eliminazione = False
-                        st.session_state.codice_da_eliminare = None
-                        st.rerun()
+                    col_no, col_si = st.columns(2)
 
-                with col_si:
+                    with col_no:
 
-                    if st.button(
-                        "✅ SÌ, ELIMINA",
-                        type="primary",
-                        use_container_width=True
-                    ):
+                        if st.button(
+                            "❌ Annulla",
+                            use_container_width=True
+                        ):
 
-                        codice_finale = (
-                            st.session_state.codice_da_eliminare
-                        )
-
-                        info_finale = inventario[
-                            codice_finale
-                        ]
-
-                        scorta_finale = int(
-                            info_finale.get(
-                                "scorta",
-                                0
+                            st.session_state.conferma_eliminazione = (
+                                False
                             )
-                        )
 
-                        crea_backup(DB_FILE)
+                            st.session_state.codice_da_eliminare = (
+                                None
+                            )
 
-                        del inventario[
-                            codice_finale
-                        ]
+                            st.rerun()
 
-                        salva_magazzino(
-                            inventario,
-                            backup=False
-                        )
+                    with col_si:
 
-                        aggiungi_evento(
-                            "ELIMINATO (❌)",
-                            codice_finale,
-                            info_finale["nome"],
-                            0,
-                            "Titolare",
-                            "Rimosso completamente dal catalogo",
-                            scorta_finale,
-                            0
-                        )
+                        if st.button(
+                            "✅ SÌ, ELIMINA",
+                            type="primary",
+                            use_container_width=True
+                        ):
 
-                        st.session_state.conferma_eliminazione = False
-                        st.session_state.codice_da_eliminare = None
+                            codice_finale = (
+                                st.session_state.codice_da_eliminare
+                            )
 
-                        st.success(
-                            f"✅ {info_finale['nome']} "
-                            f"eliminato definitivamente."
-                        )
+                            info_finale = inventario[
+                                codice_finale
+                            ]
 
-                        st.rerun()
+                            scorta_finale = int(
+                                info_finale.get(
+                                    "scorta",
+                                    0
+                                )
+                            )
+
+                            nome_finale = (
+                                info_finale["nome"]
+                            )
+
+                            del inventario[
+                                codice_finale
+                            ]
+
+                            if salva_magazzino(
+                                inventario
+                            ):
+
+                                aggiungi_evento(
+                                    "ELIMINATO (❌)",
+                                    codice_finale,
+                                    nome_finale,
+                                    0,
+                                    "Titolare",
+                                    "Rimosso completamente dal catalogo",
+                                    scorta_finale,
+                                    0
+                                )
+
+                                st.session_state.conferma_eliminazione = (
+                                    False
+                                )
+
+                                st.session_state.codice_da_eliminare = (
+                                    None
+                                )
+
+                                st.success(
+                                    f"✅ {nome_finale} "
+                                    "eliminato definitivamente."
+                                )
+
+                                st.rerun()
 
     else:
 
@@ -1625,12 +2019,12 @@ if st.session_state.autenticato:
 
 
 # ============================================================
-# FOOTER
+# INFORMAZIONI FINALI
 # ============================================================
 
 st.markdown("---")
 
 st.caption(
     "📦 Gestione Magazzino • "
-    f"{datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    f"Aggiornato il {datetime.now().strftime('%d/%m/%Y %H:%M')}"
 )
